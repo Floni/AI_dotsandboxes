@@ -87,8 +87,8 @@ class DotsAndBoxesAgent:
         logger.info("Computing next move (grid={}x{}, player={})"\
                 .format(self.nb_rows, self.nb_cols, self.players))
         # TODO: support multiple players
-        r, c, o = self.player.play(self.board, p)
-        self.board.set(r, c, o, p)
+        r, c, o = self.player.play(self.board, p-1)
+        #self.board.set(r, c, o, p)
         return r, c, ACTIONS[o]
 
     def end_game(self):

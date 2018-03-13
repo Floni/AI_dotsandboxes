@@ -140,10 +140,12 @@ class QPlayer(Player):
     def __init__(self, grid, time_limit=None, player=None):
         super().__init__(grid, time_limit, player)
 
-        self.epsilon = 0.2
+        self.epsilon = 0.01
 
         self.alpha = 0.1
         self.gamma = 0.8
+
+        self.update = True
 
         self.Q = {}
 
@@ -180,12 +182,19 @@ class QPlayer(Player):
         else:
             actions = self.get_possible_moves(board)
 
+        if len(actions) == 0:
+            print(board)
+            raise Exception()
+
         if train and random.random() < self.epsilon:
             return random.choice(actions)
         else:
             return max(actions, key=(lambda a: self.getQ(state, a)))
 
     def reward(self, board, action, next_board, reward, done, player=None):
+        if not self.update:
+            return
+
         assert board is not None
         state = self.to_state(board)
         next_state = None
@@ -200,11 +209,13 @@ class Game:
     def __init__(self, size, player1, player2):
         self.size = size
         self.players = [player1(size), player2(size)]
+        self.rand_start = True
+        self.start_player = 0
         self.reset()
 
     def reset(self):
         self.board = Board(self.size[0], self.size[1])
-        self.cur_player = random.randint(0, 1)
+        self.cur_player = random.randint(0, 1) if self.rand_start else self.start_player
         self.ended = False
         self.winner = None
         self.score = [0, 0]
@@ -360,7 +371,7 @@ class Game:
                 print("game: ", idx, "last 1000 games:")
                 print("scores: \t", scores[0], "\t", scores[1])
                 print("wins: \t\t", wins[0], " (", p(wins[0]),"%)\t", wins[1], " (", p(wins[1]), "%)")
-                print("cheats: \t", cheats[0], " (", p(cheats[0]), ")\t", cheats[1], " (", p(cheats[1]), "%)")
+                print("cheats: \t", cheats[0], " (", p(cheats[0]), "%)\t", cheats[1], " (", p(cheats[1]), "%)")
                 print("draws: ", draws, " (", p(draws), "%)")
                 print("-----------------------------------------------")
                 wins = [0, 0]
@@ -372,7 +383,7 @@ class Game:
         if not train:
             print("scores: \t", scores[0], "\t", scores[1])
             print("wins: \t\t", wins[0], " (", p(wins[0], n_games),"%)\t", wins[1], " (", p(wins[1], n_games), "%)")
-            print("cheats: \t", cheats[0], " (", p(cheats[0], n_games), ")\t", cheats[1], " (", p(cheats[1], n_games), "%)")
+            print("cheats: \t", cheats[0], " (", p(cheats[0], n_games), "%)\t", cheats[1], " (", p(cheats[1], n_games), "%)")
             print("draws: ", draws, " (", p(draws, n_games), "%)")
             print("-----------------------------------------------")
 
@@ -389,16 +400,30 @@ class Game:
         return ret
 
 SELF_PLAY = False
+OLDER_PLAY = False
+
+RAND_START = True
+
+START_FIRST = False
 
 if __name__ == '__main__':
     g = Game((2, 2), QPlayer, Player)
+    g.rand_start = RAND_START
+    if not START_FIRST:
+        g.start_player = 1
+
     if os.path.exists(PICKLE_FILE):
         print("loading Q values")
         with open(PICKLE_FILE, "rb") as f:
             g.players[0].Q = pickle.load(f)
 
     if SELF_PLAY:
-        g.players[1] = g.players[0]
+        if OLDER_PLAY:
+            g.players[1] = QPlayer((2, 2))
+            g.players[1].Q = g.players[0].Q
+            g.players[1].update = False
+        else:
+            g.players[1] = g.players[0]
 
     print("training")
     try:

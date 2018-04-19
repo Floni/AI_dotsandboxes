@@ -22,8 +22,6 @@ REWARD_TIE = 0
 REWARD_PLAY = 0
 REWARD_BOX = 0
 
-PICKLE_FILE = "q_values.pickle"
-
 class Board:
     def __init__(self, nb_rows, nb_cols):
         self.nb_rows = nb_rows
@@ -39,10 +37,10 @@ class Board:
         self.state[row][col][2] = player
 
     def get(self, row, col, dir=None):
-        if dir is None:
-            dir = col
-            col = row[1]
-            row = row[0]
+        #if dir is None:
+        #    dir = col
+        #    col = row[1]
+        #    row = row[0]
         return self.state[row][col][dir]
 
     def get_owner(self, row, col=None):
@@ -135,12 +133,31 @@ class Player:
         """
         pass
 
+    def summary(self):
+        """
+        print summary about training
+        """
+        pass
+
+
+    def load(self):
+        """
+        load the state
+        """
+        pass
+
+    def save(self):
+        """
+        Save the model state
+        """
+        pass
+
 
 class QPlayer(Player):
     def __init__(self, grid, time_limit=None, player=None):
         super().__init__(grid, time_limit, player)
 
-        self.epsilon = 0.01
+        self.epsilon = 0.05
 
         self.alpha = 0.1
         self.gamma = 0.8
@@ -148,6 +165,8 @@ class QPlayer(Player):
         self.update = True
 
         self.Q = {}
+        self.load()
+
 
     def to_state(self, board):
         return tuple([tuple([(x[0] != 0, x[1] != 0) for x in a]) for a in board.state])
@@ -174,7 +193,7 @@ class QPlayer(Player):
     def play(self, board, player=None, train=False):
         state = self.to_state(board)
         actions = []
-        if train:
+        if False: #train:
             for r in range(self.board_rows+1):
                 for c in range(self.board_cols+1):
                     for o in [0, 1]:
@@ -202,6 +221,21 @@ class QPlayer(Player):
             next_state = self.to_state(next_board)
         self.updateQ(state, action, next_state, reward, done)
 
+    def get_save_name(self):
+        name = "q_value" + str(self.board_rows) + "x" + str(self.board_cols) + ".pickle"
+        return name
+
+    def load(self):
+        name = self.get_save_name()
+        if os.path.exists(name):
+            with open(name, "rb") as f:
+                self.Q = pickle.load(f)
+
+    def save(self):
+        name = self.get_save_name()
+        with open(name, "wb") as f:
+            pickle.dump(self.Q, f)
+
 class Game:
     """
     Game for training and evaluation
@@ -223,7 +257,6 @@ class Game:
 
         self.last_boards = [None, None]
         self.last_actions = [None, None]
-        self.last_captured = [False, False]
 
     def step(self, train=False):
         assert not self.ended
@@ -287,8 +320,6 @@ class Game:
                     self.score[self.cur_player] += 1
                     self.board.capture(row, col, self.cur_player+1)
 
-        self.last_captured[self.cur_player] = captured
-
         # check win
         if self.score[0] + self.score[1] == self.size[0]*self.size[1]:
             # game over
@@ -318,12 +349,12 @@ class Game:
                                            None, REWARD_WIN, True, w)
                     self.players[l].reward(self.last_boards[l], self.last_actions[l],
                                            None, REWARD_LOSE, True, l)
+            elif captured:
+                cur_player.reward(self.last_boards[cp], self.last_actions[cp], self.board,
+                                    REWARD_BOX, False, cp)
             elif self.last_boards[op] is not None:
-                reward = REWARD_PLAY
-                if self.last_captured[op]:
-                    reward = REWARD_BOX
                 other_player.reward(self.last_boards[op], self.last_actions[op], self.board,
-                                    reward, False, op)
+                                    REWARD_PLAY, False, op)
 
         self.cheated = cheated
         # next player:
@@ -333,6 +364,7 @@ class Game:
     def play_game(self):
         self.reset()
         while not self.ended:
+            print("player: ",  self.cur_player + 1)
             self.step()
             print(self)
 
@@ -368,6 +400,8 @@ class Game:
                 wins[self.winner] += 1
 
             if train and idx % 1000 == 0:
+                self.players[0].summary()
+                self.players[1].summary()
                 print("game: ", idx, "last 1000 games:")
                 print("scores: \t", scores[0], "\t", scores[1])
                 print("wins: \t\t", wins[0], " (", p(wins[0]),"%)\t", wins[1], " (", p(wins[1]), "%)")
@@ -380,6 +414,9 @@ class Game:
                 scores = [0, 0]
 
                 cheats = [0, 0]
+
+                self.players[0].save()
+                self.players[1].save()
         if not train:
             print("scores: \t", scores[0], "\t", scores[1])
             print("wins: \t\t", wins[0], " (", p(wins[0], n_games),"%)\t", wins[1], " (", p(wins[1], n_games), "%)")
@@ -412,27 +449,21 @@ if __name__ == '__main__':
     if not START_FIRST:
         g.start_player = 1
 
-    if os.path.exists(PICKLE_FILE):
-        print("loading Q values")
-        with open(PICKLE_FILE, "rb") as f:
-            g.players[0].Q = pickle.load(f)
-
     if SELF_PLAY:
         if OLDER_PLAY:
             g.players[1] = QPlayer((2, 2))
-            g.players[1].Q = g.players[0].Q
+            #g.players[1].Q = g.players[0].Q
             g.players[1].update = False
         else:
             g.players[1] = g.players[0]
 
     print("training")
     try:
-        g.train(500000)
+        g.train(5000000)
     except KeyboardInterrupt:
         pass
     print("evaluating")
     g.eval(100)
     print("saving Q values")
-    with open(PICKLE_FILE, "wb") as f:
-        pickle.dump(g.players[0].Q, f)
+    g.players[0].save()
     print("done")

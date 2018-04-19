@@ -11,7 +11,8 @@ import matplotlib.pyplot as plt
 from collections import deque
 
 from dotsandboxesgame import Game, QPlayer, Player, Board, VERT, HORZ
-
+from NN import *
+from MDRNN import *
 
 class DQNPlayer(Player):
     """
@@ -151,7 +152,7 @@ class DQNPlayer(Player):
             self.noop = tf.no_op()
 
         self.sum_merged = tf.summary.merge_all()
-        self.sum_writer = tf.summary.FileWriter("logs/")
+        self.sum_writer = tf.summary.FileWriter("logs/", graph=tf.get_default_graph())
 
     def updateQ(self, state, action, next_state, reward, done):
         state_valid = self.get_valid_mask(state)
@@ -230,7 +231,7 @@ class DQNPlayer(Player):
         ret = np.zeros((self.state_rows, self.state_cols, 2))
         for r in range(self.state_rows):
             for c in range(self.state_cols):
-                for o in [0, 1]:
+                for o in [0, 1]: # TODO: -1 for illegal positions
                     if board.state[r][c][o] != 0:
                         ret[r][c][o] = 1.0
         return ret
@@ -279,7 +280,7 @@ class DQNPlayer(Player):
         self.last_time = t
 
     def get_save_name(self):
-        return "model/weights" + str(self.state_rows-1) + "x" + str(self.state_cols-1) + ".ckpt"
+        return "model/weights.ckpt"
 
     def load(self):
         name = tf.train.latest_checkpoint("model/")
@@ -295,12 +296,15 @@ class DQNPlayer(Player):
 
 
 def DQNPlayer_creator(predictor_func):
-    def create(*args):
-        return DQNPlayer(predictor_func, *args)
+    def create(grid, *args):
+        return DQNPlayer(predictor_func, grid, *args)
     return create
 
 
-layers = [64, 128, 64]
+layers = [
+    (tf.nn.relu, 64),
+    (tf.nn.relu, 128),
+    (tf.nn.relu, 64)]
 
 def create_network(state):
     nb_rows = state.shape[1]
@@ -311,33 +315,46 @@ def create_network(state):
 
     input_shaped = tf.reshape(state, (-1, input_size))
 
-    last_layer = input_shaped
-    for idx, (size, next_size) in enumerate(zip([input_size] + layers, layers + [-1])):
-        name = "layer" + str(idx) + "-"
+    last_layer = create_fully_connected(input_size, layers + [(None, output_size)])
 
-        nsize = next_size if next_size != -1 else output_size
-
-        W = tf.get_variable(name + "W", [size, nsize], dtype=tf.float32)
-        b = tf.get_variable(name + "b", [1, nsize], dtype=tf.float32)
-
-        last_layer = tf.matmul(last_layer, W) + b
-        if next_size != -1:
-            last_layer = tf.nn.relu(last_layer)
-
-    output_shaped = tf.reshape(last_layer, (-1, nb_rows, nb_cols, 2))
+    output = last_layer(input_shaped)
+    output_shaped = tf.reshape(output, (-1, nb_rows, nb_cols, 2))
     return output_shaped
 
-dqn_player = DQNPlayer_creator(create_network)
+def create_rnn_network(state):
+    state_size = 8
+    hidden_size = 8
+
+    test_shape = tf.shape(state)[0]
+    # TODO: make placeholder, don't require test_shape for dynamic size
+    init_state = tf.zeros([test_shape, state_size])
+
+    cells = [Dense(2 * state_size + 2, state_size)] * 4
+    state_grid = unroll2DRNN(cells, state, init_state)
+
+    sub_network = create_fully_connected(4 * state_size, [
+        (tf.nn.relu, hidden_size),
+        (None, 2)
+    ])
+
+    concat_grid = concat2D(state_grid)
+    output = apply2D(sub_network, concat_grid)
+
+    return tf.transpose(output, (2, 0, 1, 3))
+
+dqn_player = DQNPlayer_creator(create_rnn_network)#create_network)
 
 RAND_START = True
 START_FIRST = False
+QPLAYER = False
 
 if __name__ == "__main__":
-    g = Game((2, 2), dqn_player, Player)
+    g = Game((2, 2), dqn_player, Player if not QPLAYER else QPlayer)
     g.rand_start = RAND_START
     if not START_FIRST:
         g.start_player = 1
-
+    if QPLAYER:
+        g.players[1].update = False
     #if SELF_PLAY:
     #    if OLDER_PLAY:
     #        g.players[1] = QPlayer((2, 2))

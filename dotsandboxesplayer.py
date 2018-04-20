@@ -329,7 +329,7 @@ def create_rnn_network(state):
     # TODO: make placeholder, don't require test_shape for dynamic size
     init_state = tf.zeros([test_shape, state_size])
 
-    cells = [Dense(2 * state_size + 2, state_size)] * 4
+    cells = [Dense(2 * state_size + 2, state_size, activation=tf.tanh)] * 4
     state_grid = unroll2DRNN(cells, state, init_state)
 
     sub_network = create_fully_connected(4 * state_size, [
@@ -349,7 +349,7 @@ START_FIRST = False
 QPLAYER = False
 
 if __name__ == "__main__":
-    g = Game((2, 2), dqn_player, Player if not QPLAYER else QPlayer)
+    g = Game((3, 3), dqn_player, Player if not QPLAYER else QPlayer)
     g.rand_start = RAND_START
     if not START_FIRST:
         g.start_player = 1

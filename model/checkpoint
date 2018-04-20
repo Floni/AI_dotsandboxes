@@ -1,6 +1,0 @@
-model_checkpoint_path: "weights.ckpt-75252"
-all_model_checkpoint_paths: "weights.ckpt-54073"
-all_model_checkpoint_paths: "weights.ckpt-60440"
-all_model_checkpoint_paths: "weights.ckpt-66954"
-all_model_checkpoint_paths: "weights.ckpt-73397"
-all_model_checkpoint_paths: "weights.ckpt-75252"

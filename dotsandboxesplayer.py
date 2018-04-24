@@ -18,8 +18,10 @@ class DQNPlayer(Player):
     """
     deep Q network player for dots and boxes
     """
-    def __init__(self, predictor_func, grid, time_limit=None, player=None):
+    def __init__(self, predictor_func, grid, time_limit=None, player=None, name=""):
         super().__init__(grid, time_limit, player)
+
+        self.name = name
 
         self.predictor_func = predictor_func
 
@@ -46,10 +48,12 @@ class DQNPlayer(Player):
         self.last_time = time.time()
         self.reset_summary()
 
-        self.session = tf.Session()
-        self.create_graph()
-        self.session.run(tf.global_variables_initializer())
-        self.load()
+        self.graph = tf.Graph()
+        self.session = tf.Session(graph=self.graph)
+        with self.graph.as_default():
+            self.create_graph()
+            self.session.run(tf.global_variables_initializer())
+            self.load()
 
     def reset_summary(self):
         self.idx = 0
@@ -142,7 +146,7 @@ class DQNPlayer(Player):
         with tf.name_scope("save_model"):
             q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
             target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_network")
-            self.Saver = tf.train.Saver(q_vars + target_vars + [self.global_step])
+            self.Saver = tf.train.Saver(q_vars + target_vars + [self.global_step], filename=self.get_save_name(), max_to_keep=3)
 
         with tf.name_scope("reward_summary"):
             self.avg_reward = tf.placeholder(tf.float32, name='avg_reward')
@@ -159,6 +163,9 @@ class DQNPlayer(Player):
         next_state_valid = None
         if not done:
             next_state_valid = self.get_valid_mask(next_state)
+        else:
+            self.epsilon *= 0.9999 # TODO: exp backoff
+
         self.add_mem(state, state_valid, action, next_state, next_state_valid, reward, done)
         if len(self.replay_mem) < self.batch_size:
             return
@@ -275,15 +282,14 @@ class DQNPlayer(Player):
 
     def summary(self):
         t = time.time()
-        print("Step: ", self.idx, " last 100 avg. loss: ", sum(self.loss_list[-10:]) / 10,
-            "time: ", t - self.last_time)
+        print("Step: {}, eps: {:.3f}, avg. loss: {:.1f}, time: {:.2f}".format(self.idx, self.epsilon, sum(self.loss_list[-10:]) / 10, t - self.last_time))
         self.last_time = t
 
     def get_save_name(self):
-        return "model/weights.ckpt"
+        return "model-" + self.name + "/weights.ckpt"
 
     def load(self):
-        name = tf.train.latest_checkpoint("model/")
+        name = tf.train.latest_checkpoint("model-" + self.name + "/")
         if name is not None:
             self.Saver.restore(self.session, name)
             print("checkpoint restored")
@@ -291,13 +297,17 @@ class DQNPlayer(Player):
             print("checkpoint doesn't exist")
 
     def save(self):
-        save_path = self.Saver.save(self.session, self.get_save_name(), global_step=self.global_step)
-        print("saved in:", save_path)
+        if not self.update:
+            return
+
+        with self.graph.as_default():
+            save_path = self.Saver.save(self.session, self.get_save_name(), global_step=self.global_step)
+            print("saved in:", save_path)
 
 
-def DQNPlayer_creator(predictor_func):
-    def create(grid, *args):
-        return DQNPlayer(predictor_func, grid, *args)
+def DQNPlayer_creator(predictor_func, name):
+    def create(grid, *args, **kwargs):
+        return DQNPlayer(predictor_func, grid, *args, name=name, **kwargs)
     return create
 
 
@@ -315,25 +325,25 @@ def create_network(state):
 
     input_shaped = tf.reshape(state, (-1, input_size))
 
-    last_layer = create_fully_connected(input_size, layers + [(None, output_size)])
+    last_layer = create_fully_connected("dense-layers", input_size, layers + [(None, output_size)])
 
     output = last_layer(input_shaped)
     output_shaped = tf.reshape(output, (-1, nb_rows, nb_cols, 2))
     return output_shaped
 
 def create_rnn_network(state):
-    state_size = 8
-    hidden_size = 8
+    state_size = 16
 
     test_shape = tf.shape(state)[0]
     # TODO: make placeholder, don't require test_shape for dynamic size
     init_state = tf.zeros([test_shape, state_size])
 
-    cells = [Dense(2 * state_size + 2, state_size, activation=tf.tanh)] * 4
+    cells = [Dense("cell", 2 * state_size + 2, state_size, activation=tf.tanh)] * 4
     state_grid = unroll2DRNN(cells, state, init_state)
 
-    sub_network = create_fully_connected(4 * state_size, [
-        (tf.nn.relu, hidden_size),
+    sub_network = create_fully_connected("output", 4 * state_size, [
+        (tf.nn.relu, 32),
+        (tf.nn.relu, 16),
         (None, 2)
     ])
 
@@ -342,33 +352,52 @@ def create_rnn_network(state):
 
     return tf.transpose(output, (2, 0, 1, 3))
 
-dqn_player = DQNPlayer_creator(create_rnn_network)#create_network)
+dqn_player = DQNPlayer_creator(create_rnn_network, "rnn")#create_network)
+
+TRAIN = True
 
 RAND_START = True
 START_FIRST = False
+
 QPLAYER = False
+NN_PLAY = False
+SELF_PLAY = False
+
+BOARD_SIZE = (3, 3)
 
 if __name__ == "__main__":
-    g = Game((3, 3), dqn_player, Player if not QPLAYER else QPlayer)
+    player2 = Player
+    if QPLAYER:
+        player2 = QPlayer
+    elif SELF_PLAY:
+        player2 = dqn_player
+    elif NN_PLAY:
+        player2 = DQNPlayer_creator(create_network, "fcc")
+
+    g = Game(BOARD_SIZE, dqn_player, player2)
+
     g.rand_start = RAND_START
+
     if not START_FIRST:
         g.start_player = 1
-    if QPLAYER:
+
+    if QPLAYER or SELF_PLAY:
         g.players[1].update = False
-    #if SELF_PLAY:
-    #    if OLDER_PLAY:
-    #        g.players[1] = QPlayer((2, 2))
-    #        #g.players[1].Q = g.players[0].Q
-    #        g.players[1].update = False
-    #    else:
-    #        g.players[1] = g.players[0]
-    print("training")
-    try:
-        g.train(50000)
-    except KeyboardInterrupt:
-        pass
+
+    if TRAIN:
+        print("training")
+        try:
+            g.train(10000)
+        except KeyboardInterrupt:
+            pass
+
     print("evaluating")
     g.eval(1000)
-    print("saving Q values")
-    g.players[0].save()
+
+    if TRAIN:
+        print("saving Q values")
+        g.players[0].save()
+        if NN_PLAY:
+            g.players[1].save()
+
     print("done")

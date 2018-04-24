@@ -6,6 +6,7 @@ Implements the game for training and evaluation
 import random
 import pickle
 
+import time
 import os.path
 
 VERT = 0
@@ -245,6 +246,9 @@ class Game:
         self.players = [player1(size), player2(size)]
         self.rand_start = True
         self.start_player = 0
+
+        self.play_times = [0, 0]
+        self.steps = [0, 0]
         self.reset()
 
     def reset(self):
@@ -258,6 +262,12 @@ class Game:
         self.last_boards = [None, None]
         self.last_actions = [None, None]
 
+    def copy(self):
+        ret = Game(self.size, None, None)
+        ret.rand_start = self.rand_start
+        ret.start_player = self.start_player
+
+
     def step(self, train=False):
         assert not self.ended
 
@@ -267,7 +277,11 @@ class Game:
         # save board for rewards
         self.last_boards[self.cur_player] = self.board.copy()
 
+        start_time = time.time()
         row, col, d = cur_player.play(self.board, self.cur_player, train)
+        elapsed = time.time() - start_time
+        self.play_times[self.cur_player] += elapsed
+        self.steps[self.cur_player] += 1
 
         # save action for rewards
         self.last_actions[self.cur_player] = (row, col, d)
@@ -369,7 +383,11 @@ class Game:
             print(self)
 
     def eval(self, n_games):
-        return self.train(n_games, False)
+        start_time = time.time()
+        self.train(n_games, False)
+        end_time = time.time()
+        elapsed = end_time - start_time
+        print("total time:", elapsed, "per game:", elapsed / n_games)
 
     def train(self, n_games, train=True):
         wins = [0, 0]
@@ -378,6 +396,8 @@ class Game:
         scores = [0, 0]
 
         cheats = [0, 0]
+        self.play_times = [0, 0]
+        self.steps = [0, 0]
 
         def p(x, n = 1000):
             return round(x / n * 100, 1)
@@ -419,9 +439,10 @@ class Game:
                 self.players[1].save()
         if not train:
             print("scores: \t", scores[0], "\t", scores[1])
-            print("wins: \t\t", wins[0], " (", p(wins[0], n_games),"%)\t", wins[1], " (", p(wins[1], n_games), "%)")
+            print("wins:   \t", wins[0], " (", p(wins[0], n_games),"%)\t", wins[1], " (", p(wins[1], n_games), "%)")
             print("cheats: \t", cheats[0], " (", p(cheats[0], n_games), "%)\t", cheats[1], " (", p(cheats[1], n_games), "%)")
             print("draws: ", draws, " (", p(draws, n_games), "%)")
+            print("avg play time:\t", self.play_times[0] / self.steps[0], "\t", self.play_times[1] / self.steps[0])
             print("-----------------------------------------------")
 
     def __repr__(self):
@@ -444,7 +465,7 @@ RAND_START = True
 START_FIRST = False
 
 if __name__ == '__main__':
-    g = Game((2, 2), QPlayer, Player)
+    g = Game((3, 3), QPlayer, Player)
     g.rand_start = RAND_START
     if not START_FIRST:
         g.start_player = 1

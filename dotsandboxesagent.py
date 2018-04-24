@@ -12,23 +12,24 @@ import json
 from collections import defaultdict
 import random
 from dotsandboxesgame import *
+from dotsandboxesplayer import *
 
 logger = logging.getLogger(__name__)
 games = {}
 agentclass = None
 
-def player_creator(size, *args):
-    if size[0] == size[1] == 2:
-        Q = None
-        with open(PICKLE_FILE, "rb") as f:
-            Q = pickle.load(f)
-        p = QPlayer(size, *args)
-        p.Q = Q
-        return p
-    else:
-        return Player(size, *args)
+#def player_creator(size, *args):
+#    if size[0] == size[1] == 2:
+#        Q = None
+#        with open(PICKLE_FILE, "rb") as f:
+#            Q = pickle.load(f)
+#        p = QPlayer(size, *args)
+#        p.Q = Q
+#        return p
+#    else:
+#        return Player(size, *args)
 
-playerclass = player_creator
+playerclass = dqn_player
 
 class DotsAndBoxesAgent:
     """Example Dots and Boxes agent implementation base class.
@@ -58,7 +59,7 @@ class DotsAndBoxesAgent:
         self.nb_rows = nb_rows
         self.nb_cols = nb_cols
         self.board = Board(nb_rows, nb_cols)
-        self.player = playerclass((nb_rows, nb_cols), timelimit)
+        self.player = playerclass((nb_rows, nb_cols), time_limit=timelimit)
 
     def add_player(self, player):
         """Use the same agent for multiple players."""

@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from collections import deque
 
 from dotsandboxesgame import Game, QPlayer, Player, Board, VERT, HORZ
+from greedyPlayer import GreedyPlayer
 from NN import *
 from MDRNN import *
 
@@ -342,6 +343,7 @@ def create_rnn_network(state):
     state_grid = unroll2DRNN(cells, state, init_state)
 
     sub_network = create_fully_connected("output", 4 * state_size, [
+        (tf.nn.relu, 64),
         (tf.nn.relu, 32),
         (tf.nn.relu, 16),
         (None, 2)
@@ -362,6 +364,7 @@ START_FIRST = False
 QPLAYER = False
 NN_PLAY = False
 SELF_PLAY = False
+GREEDY_PLAY = True
 
 BOARD_SIZE = (3, 3)
 
@@ -373,6 +376,8 @@ if __name__ == "__main__":
         player2 = dqn_player
     elif NN_PLAY:
         player2 = DQNPlayer_creator(create_network, "fcc")
+    elif GREEDY_PLAY:
+        player2 = GreedyPlayer
 
     g = Game(BOARD_SIZE, dqn_player, player2)
 
@@ -383,6 +388,9 @@ if __name__ == "__main__":
 
     if QPLAYER or SELF_PLAY:
         g.players[1].update = False
+
+    if QPLAYER:
+        g.players[1].epsilon = 0.001
 
     if TRAIN:
         print("training")

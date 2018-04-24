@@ -23,6 +23,27 @@ REWARD_TIE = 0
 REWARD_PLAY = 0
 REWARD_BOX = 0
 
+# Print iterations progress
+def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█'):
+    """
+    Call in a loop to create terminal progress bar
+    @params:
+        iteration   - Required  : current iteration (Int)
+        total       - Required  : total iterations (Int)
+        prefix      - Optional  : prefix string (Str)
+        suffix      - Optional  : suffix string (Str)
+        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        length      - Optional  : character length of bar (Int)
+        fill        - Optional  : bar fill character (Str)
+    """
+    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+    filledLength = int(length * iteration // total)
+    bar = fill * filledLength + '-' * (length - filledLength)
+    print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end = '\r')
+    # Print New Line on Complete
+    if iteration == total:
+        print()
+
 class Board:
     def __init__(self, nb_rows, nb_cols):
         self.nb_rows = nb_rows
@@ -264,28 +285,32 @@ class Game:
 
     def copy(self):
         ret = Game(self.size, None, None)
+        # from __init__
         ret.rand_start = self.rand_start
         ret.start_player = self.start_player
+        ret.play_times = [self.play_times[0], self.play_times[1]]
+        ret.steps = [self.steps[0], self.steps[1]]
+        # from reset
+        ret.board = self.board.copy()
+        ret.cur_player = self.cur_player
+        ret.ended = self.ended
+        ret.winner = self.winner
+        ret.score = [self.score[0], self.score[1]]
+        ret.cheated = self.cheated
+        ret.last_boards = self.last_actions.copy()
+        ret.last_actions = self.last_actions.copy()
 
-
-    def step(self, train=False):
+    def step_move(self, move):
         assert not self.ended
 
-        cur_player = self.players[self.cur_player]
-        other_player = self.players[1-self.cur_player]
+        row, col, d = move
+        _, captured = self.update_board(row, col, d)
 
-        # save board for rewards
-        self.last_boards[self.cur_player] = self.board.copy()
+        # next player:
+        if not captured and not self.ended:
+            self.cur_player = 1 - self.cur_player
 
-        start_time = time.time()
-        row, col, d = cur_player.play(self.board, self.cur_player, train)
-        elapsed = time.time() - start_time
-        self.play_times[self.cur_player] += elapsed
-        self.steps[self.cur_player] += 1
-
-        # save action for rewards
-        self.last_actions[self.cur_player] = (row, col, d)
-
+    def update_board(self, row, col, d):
         # update board
         cheated = False
         captured = False
@@ -343,6 +368,31 @@ class Game:
             elif self.score[1] > self.score[0]:
                 self.winner = 1
 
+        self.cheated = cheated
+
+        return cheated, captured
+
+    def step(self, train=False):
+        assert not self.ended
+
+        cur_player = self.players[self.cur_player]
+        other_player = self.players[1-self.cur_player]
+
+        # save board for rewards
+        self.last_boards[self.cur_player] = self.board.copy()
+
+        start_time = time.time()
+        row, col, d = cur_player.play(self.board, self.cur_player, train)
+        elapsed = time.time() - start_time
+        self.play_times[self.cur_player] += elapsed
+        self.steps[self.cur_player] += 1
+
+        # save action for rewards
+        self.last_actions[self.cur_player] = (row, col, d)
+
+        # update board
+        cheated, captured = self.update_board(row, col, d)
+
         # give reward:
         if train:
             cp = self.cur_player
@@ -370,7 +420,6 @@ class Game:
                 other_player.reward(self.last_boards[op], self.last_actions[op], self.board,
                                     REWARD_PLAY, False, op)
 
-        self.cheated = cheated
         # next player:
         if not captured and not self.ended:
             self.cur_player = 1 - self.cur_player
@@ -437,6 +486,10 @@ class Game:
 
                 self.players[0].save()
                 self.players[1].save()
+            if not train:
+                printProgressBar(idx, n_games - 1)
+            else:
+                printProgressBar(idx % 1000, 1000 - 1, suffix=" to 1000")
         if not train:
             print("scores: \t", scores[0], "\t", scores[1])
             print("wins:   \t", wins[0], " (", p(wins[0], n_games),"%)\t", wins[1], " (", p(wins[1], n_games), "%)")
@@ -458,7 +511,7 @@ class Game:
         return ret
 
 SELF_PLAY = False
-OLDER_PLAY = False
+OLDER_PLAY = True
 
 RAND_START = True
 
@@ -472,7 +525,7 @@ if __name__ == '__main__':
 
     if SELF_PLAY:
         if OLDER_PLAY:
-            g.players[1] = QPlayer((2, 2))
+            g.players[1] = QPlayer((3, 3))
             #g.players[1].Q = g.players[0].Q
             g.players[1].update = False
         else:

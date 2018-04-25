@@ -10,10 +10,55 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 from collections import deque
 
-from dotsandboxesgame import Game, QPlayer, Player, Board, VERT, HORZ
-from greedyPlayer import GreedyPlayer
+import pickle
+
+from dotsandboxesgame import *
 from NN import *
 from MDRNN import *
+
+
+# HYPER PARAMETERS:
+INITIAL_EXPLORATION = 0.2
+FINAL_EXPLORATION = 0.01
+EXPLORATION_STEPS = 60000
+
+DISCOUNT_GAMMA = 0.99
+
+UPDATE_TARGET_INTERVAL = 500
+
+BATCH_SIZE = 64
+
+REPLAY_BUFFER_SIZE = 10000
+
+GRADIENT_CLIPPING_NORM = 1
+
+LEARNING_RATE = 1e-4
+
+# run parameters:
+TRAIN = True
+
+RAND_START = True
+START_FIRST = False
+
+QPLAYER = False
+NN_PLAY = False
+SELF_PLAY = False
+GREEDY_PLAY = True
+
+PRINT_QS = False
+
+BOARD_SIZE = (3, 3)
+
+TRAIN_GAMES = 100000
+
+# from: https://github.com/openai/baselines/blob/master/baselines/common/tf_util.py
+def huber_loss(x, delta=1.0):
+    """Reference: https://en.wikipedia.org/wiki/Huber_loss"""
+    return tf.where(
+        tf.abs(x) < delta,
+        tf.square(x) * 0.5,
+        delta * (tf.abs(x) - 0.5 * delta)
+    )
 
 class DQNPlayer(Player):
     """
@@ -30,17 +75,17 @@ class DQNPlayer(Player):
         self.state_rows = grid[0]+1
         self.state_cols = grid[1]+1
 
-        self.epsilon = 0.2
+        self.exploration = INITIAL_EXPLORATION
+        self.final_exploration = FINAL_EXPLORATION
+        self.expl_update = (self.exploration - self.final_exploration) / EXPLORATION_STEPS
 
-        self.alpha = 0.1 #0.01
-        self.gamma = 0.8
+        self.gamma = DISCOUNT_GAMMA
 
-        self.batch_size = 32
+        self.batch_size = BATCH_SIZE
 
-        self.max_gradient = 5
-        self.reg_param = 0.01
+        self.max_gradient = GRADIENT_CLIPPING_NORM
 
-        self.replay_mem = deque(maxlen=10000)
+        self.replay_mem = deque(maxlen=REPLAY_BUFFER_SIZE)
 
         self.update = True
 
@@ -54,6 +99,7 @@ class DQNPlayer(Player):
         with self.graph.as_default():
             self.create_graph()
             self.session.run(tf.global_variables_initializer())
+            self.session.run(self.target_update)
             self.load()
 
     def reset_summary(self):
@@ -115,34 +161,51 @@ class DQNPlayer(Player):
             self.masked_action_scores = tf.reduce_sum(self.action_scores * self.Action_Mask, axis=(1, 2, 3))
 
             self.temp_diff = self.masked_action_scores - self.future_rewards
-            self.td_loss = tf.reduce_mean(tf.square(self.temp_diff))
+            self.td_loss = tf.reduce_mean(huber_loss(self.temp_diff))
             tf.summary.scalar('td_loss', self.td_loss)
 
-            q_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
-            self.reg_loss = self.reg_param * tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in q_net_vars])
-            tf.summary.scalar('reg_loss', self.reg_loss)
-            self.loss = self.td_loss + self.reg_loss
-            tf.summary.scalar('loss', self.loss)
+            #q_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
+            #self.reg_loss = self.reg_param * tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in q_net_vars])
+            #tf.summary.scalar('reg_loss', self.reg_loss)
+            self.loss = self.td_loss #+ self.reg_loss
+            #tf.summary.scalar('loss', self.loss)
 
-            self.optimizer = tf.train.RMSPropOptimizer(learning_rate=0.0001, decay=0.9)
+            self.optimizer = tf.train.AdamOptimizer(LEARNING_RATE) #tf.train.RMSPropOptimizer(learning_rate=0.0001, decay=0.9)
 
-            gradients = self.optimizer.compute_gradients(self.loss)
-            for i, (grad, var) in enumerate(gradients):
-                if grad is not None:
-                    gradients[i] = (tf.clip_by_norm(grad, self.max_gradient), var)
+            gradients, variables = zip(*self.optimizer.compute_gradients(self.loss))
+            gradients, _ = tf.clip_by_global_norm(gradients, self.max_gradient)
 
-            self.train_op = self.optimizer.apply_gradients(gradients, global_step=self.global_step)
+            #for i, (grad, var) in enumerate(gradients):
+            #    if grad is not None:
+            #        gradients[i] = (tf.clip_by_norm(grad, self.max_gradient), var)
+
+            self.train_op = self.optimizer.apply_gradients(zip(gradients, variables), global_step=self.global_step)
 
         with tf.name_scope("update_target"):
             self.target_update = []
 
             q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
             target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_network")
-            for v_q, v_target in zip(q_vars, target_vars):
-                update_op = v_target.assign_sub(self.alpha * (v_target - v_q))
+            for v_q, v_target in zip(sorted(q_vars, key=lambda v: v.name), sorted(target_vars, key=lambda v: v.name)):
+                update_op = v_target.assign(v_q)
                 self.target_update.append(update_op)
 
             self.target_update = tf.group(*self.target_update)
+
+        #with tf.name_scope("train_pickle"):
+        #    self.Correct_Qs = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, 2], name="CorrectQs")
+        #    # calc loss
+        #    self.Q_loss = tf.losses.mean_squared_error(self.Correct_Qs, self.action_scores)
+        #    # optimize loss
+        #    self.Q_train_op = tf.train.RMSPropOptimizer(learning_rate=0.01).minimize(self.Q_loss)
+        #    # update target network
+        #    self.target_set = []
+        #    q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
+        #    target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_network")
+        #    for v_q, v_target in zip(q_vars, target_vars):
+        #        update_op = v_target.assign(v_q)
+        #        self.target_set.append(update_op)
+        #    self.Q_target_set = tf.group(*self.target_set)
 
         with tf.name_scope("save_model"):
             q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
@@ -164,8 +227,6 @@ class DQNPlayer(Player):
         next_state_valid = None
         if not done:
             next_state_valid = self.get_valid_mask(next_state)
-        else:
-            self.epsilon *= 0.9999 # TODO: exp backoff
 
         self.add_mem(state, state_valid, action, next_state, next_state_valid, reward, done)
         if len(self.replay_mem) < self.batch_size:
@@ -204,7 +265,7 @@ class DQNPlayer(Player):
 
         _summary, _, _loss, _train_step = self.session.run([
             self.sum_merged if do_summary else self.noop,
-            self.avg_reward_op,
+            self.avg_reward_op if do_summary else self.noop,
             self.loss,
             self.train_op
         ], feed_dict={
@@ -222,7 +283,11 @@ class DQNPlayer(Player):
             self.sum_writer.add_summary(_summary, global_step=self.global_step.eval(self.session))
 
         # update target:
-        self.session.run(self.target_update)
+        if self.idx % UPDATE_TARGET_INTERVAL == 0:
+            self.session.run(self.target_update)
+
+        # update exploration:
+        self.exploration = max(self.final_exploration, self.exploration - self.expl_update)
 
         # for summary:
         self.tot_reward += reward
@@ -267,7 +332,7 @@ class DQNPlayer(Player):
 
         actions = self.get_possible_moves(board)
 
-        if train and random.random() < self.epsilon:
+        if train and random.random() < self.exploration:
             return random.choice(actions)
         else:
             return max(actions, key=(lambda a: Q_values[a[0]][a[1]][a[2]]))
@@ -281,9 +346,63 @@ class DQNPlayer(Player):
             next_state = self.to_state(next_board)
         self.updateQ(state, action, next_state, reward, done)
 
+
+    # def tuple_to_state(self, tpl):
+    #     ret = np.zeros((self.state_rows, self.state_cols, 2))
+    #     for r in range(self.state_rows):
+    #         for c in range(self.state_cols):
+    #             for o in [0, 1]: # TODO: -1 for illegal positions
+    #                 if tpl[r][c][o]:
+    #                     ret[r][c][o] = 1.0
+    #     return ret
+
+    # def map_to_output(self, Qmap):
+    #     ret = np.zeros((self.state_rows, self.state_cols, 2))
+    #     for r in range(self.state_rows):
+    #         for c in range(self.state_cols):
+    #             for o in [0, 1]:
+    #                 if (r, c, o) in Qmap:
+    #                     ret[r][c][o] = Qmap[(r, c, o)]
+    #     return ret
+
+    # def learn_from_pickle(self, pickle_name, n_iters):
+    #     Qs = None
+    #     with open(pickle_name, "rb") as f:
+    #         Qs = pickle.load(f)
+
+    #     states = list(Qs.keys())
+
+    #     tot_loss = 0
+
+    #     for idx in range(n_iters):
+    #         # generate batch
+    #         batch = random.sample(states, self.batch_size)
+    #         batch_states = [self.tuple_to_state(x) for x in batch]
+    #         batch_valid_mask = [self.get_valid_mask(x) for x in batch_states]
+    #         batch_labels = [self.map_to_output(Qs[x]) for x in batch]
+    #         # train on batch
+    #         loss, _ = self.session.run([self.Q_loss, self.Q_train_op], feed_dict={
+    #             self.States: batch_states,
+    #             self.Valid_Action_Mask: batch_valid_mask,
+    #             self.Correct_Qs: batch_labels
+    #         })
+    #         tot_loss += loss
+
+    #         if idx % 1000 == 0:
+    #             print()
+    #             print("step:", idx, "avg. loss:", tot_loss / 1000)
+    #             tot_loss = 0
+    #         printProgressBar(idx, n_iters, suffix=" to 1000")
+
+    #     # update target network
+    #     self.session.run(self.Q_target_set)
+
+    #     print("targetQ:")
+    #     print(self.map_to_output(Qs[states[0]]))
+
     def summary(self):
         t = time.time()
-        print("Step: {}, eps: {:.3f}, avg. loss: {:.1f}, time: {:.2f}".format(self.idx, self.epsilon, sum(self.loss_list[-10:]) / 10, t - self.last_time))
+        print("Step: {}, eps: {:.3f}, avg. loss: {:.1f}, time: {:.2f}".format(self.idx, self.exploration, sum(self.loss_list[-10:]) / 10, t - self.last_time))
         self.last_time = t
 
     def get_save_name(self):
@@ -314,8 +433,10 @@ def DQNPlayer_creator(predictor_func, name):
 
 layers = [
     (tf.nn.relu, 64),
+    (tf.nn.relu, 256),
     (tf.nn.relu, 128),
-    (tf.nn.relu, 64)]
+    (tf.nn.relu, 32)
+]
 
 def create_network(state):
     nb_rows = state.shape[1]
@@ -333,7 +454,7 @@ def create_network(state):
     return output_shaped
 
 def create_rnn_network(state):
-    state_size = 16
+    state_size = 64
 
     test_shape = tf.shape(state)[0]
     # TODO: make placeholder, don't require test_shape for dynamic size
@@ -343,9 +464,9 @@ def create_rnn_network(state):
     state_grid = unroll2DRNN(cells, state, init_state)
 
     sub_network = create_fully_connected("output", 4 * state_size, [
+        (tf.nn.relu, 256),
         (tf.nn.relu, 64),
-        (tf.nn.relu, 32),
-        (tf.nn.relu, 16),
+        (tf.nn.relu, 8),
         (None, 2)
     ])
 
@@ -356,19 +477,23 @@ def create_rnn_network(state):
 
 dqn_player = DQNPlayer_creator(create_rnn_network, "rnn")#create_network)
 
-TRAIN = True
 
-RAND_START = True
-START_FIRST = False
 
-QPLAYER = False
-NN_PLAY = False
-SELF_PLAY = False
-GREEDY_PLAY = True
+LEARN_FROM_PICKLE = False
+PICKLE_NAME = "q_value2x2.pickle"
 
-BOARD_SIZE = (3, 3)
+# def learn_pickle():
+#     print("training from pickle")
+#     p = dqn_player(BOARD_SIZE)
+#     p.learn_from_pickle(PICKLE_NAME, 50000)
+#     p.save()
+#     print("done")
 
-if __name__ == "__main__":
+def main():
+    # if LEARN_FROM_PICKLE:
+    #     learn_pickle()
+    #     return
+
     player2 = Player
     if QPLAYER:
         player2 = QPlayer
@@ -390,12 +515,12 @@ if __name__ == "__main__":
         g.players[1].update = False
 
     if QPLAYER:
-        g.players[1].epsilon = 0.001
+        g.players[1].epsilon = 0
 
     if TRAIN:
         print("training")
         try:
-            g.train(10000)
+            g.train(TRAIN_GAMES)
         except KeyboardInterrupt:
             pass
 
@@ -408,4 +533,22 @@ if __name__ == "__main__":
         if NN_PLAY:
             g.players[1].save()
 
+    if PRINT_QS:
+        g.reset()
+        g.board.set(1, 1, VERT, 1)
+        g.board.set(1, 0, HORZ, 2)
+        p = g.players[0]
+        state = p.to_state(g.board)
+        print("Qs:")
+        print(p.getQs(state))
+        print("target:")
+        print(p.session.run(p.next_action_scores, feed_dict={
+            p.Next_States: state.reshape((1, p.state_rows, p.state_cols, 2)),
+            p.Valid_Next_Action_Mask: p.get_valid_mask(state).reshape((1, p.state_rows, p.state_cols, 2))
+        })[0])
+
     print("done")
+
+
+if __name__ == "__main__":
+    main()

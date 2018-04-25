@@ -179,12 +179,19 @@ class QPlayer(Player):
     def __init__(self, grid, time_limit=None, player=None):
         super().__init__(grid, time_limit, player)
 
-        self.epsilon = 0.05
+        # start with 100 % exploration
+        self.exploration = 1.0
+        self.final_exploration = 0.02
+        self.exploration_fraction = 10000
 
-        self.alpha = 0.1
-        self.gamma = 0.8
+        self.expl_update = (self.exploration - self.final_exploration) / self.exploration_fraction
+
+        self.alpha = 0.3
+        self.gamma = 0.9
 
         self.update = True
+
+
 
         self.Q = {}
         self.load()
@@ -201,6 +208,8 @@ class QPlayer(Player):
 
     def updateQ(self, state, action, next_state, reward, done):
         max_q_next = 0
+
+        self.exploration = max(self.exploration - self.expl_update, self.final_exploration)
 
         if not done and next_state in self.Q:
             max_q_next = max(self.Q[next_state].values())
@@ -227,7 +236,7 @@ class QPlayer(Player):
             print(board)
             raise Exception()
 
-        if train and random.random() < self.epsilon:
+        if train and random.random() < self.exploration:
             return random.choice(actions)
         else:
             return max(actions, key=(lambda a: self.getQ(state, a)))
@@ -510,15 +519,38 @@ class Game:
             ret += "\nplayer " + str(self.cur_player+1) + " cheated"
         return ret
 
+class GreedyPlayer(Player):
+    def __init__(self, grid, time_limit = None, player=None):
+        super().__init__(grid, time_limit, player)
+
+    def play(self, board, player=None, train=False):
+        for row in range(self.board_rows):
+            for col in range(self.board_cols):
+                if board.get_owner(row, col) != 0:
+                    continue
+                open_edges = []
+                if board.get(row, col, HORZ) == 0:
+                    open_edges.append((row, col, HORZ))
+                if board.get(row, col, VERT) == 0:
+                    open_edges.append((row, col, VERT))
+                if board.get(row+1, col, HORZ) == 0:
+                    open_edges.append((row+1, col, HORZ))
+                if board.get(row, col+1, VERT) == 0:
+                    open_edges.append((row, col+1, VERT))
+
+                if len(open_edges) == 1:
+                    return open_edges[0]
+        return random.choice(self.get_possible_moves(board))
+
 SELF_PLAY = False
-OLDER_PLAY = True
+OLDER_PLAY = False
 
 RAND_START = True
 
 START_FIRST = False
 
 if __name__ == '__main__':
-    g = Game((3, 3), QPlayer, Player)
+    g = Game((2, 2), QPlayer, GreedyPlayer)
     g.rand_start = RAND_START
     if not START_FIRST:
         g.start_player = 1
@@ -533,11 +565,11 @@ if __name__ == '__main__':
 
     print("training")
     try:
-        g.train(5000000)
+        g.train(100000)
     except KeyboardInterrupt:
         pass
     print("evaluating")
-    g.eval(100)
+    g.eval(1000)
     print("saving Q values")
     g.players[0].save()
     print("done")

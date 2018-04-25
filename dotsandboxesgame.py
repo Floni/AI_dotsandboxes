@@ -16,7 +16,7 @@ ACTION_N = {"v": 0, "h": 1}
 
 REWARD_CHEAT = -200
 
-REWARD_WIN = 100
+REWARD_WIN = 200
 REWARD_LOSE = -100
 
 REWARD_TIE = 0
@@ -125,6 +125,12 @@ class Player:
         self.board_rows = grid[0]
         self.board_cols = grid[1]
 
+        self.all_moves = []
+        for row in range(self.board_rows+1):
+            for col in range(self.board_cols+1):
+                for dir in [0, 1]:
+                    self.all_moves.append((row, col, dir))
+
     def get_possible_moves(self, board):
         poss = []
         for row in range(self.board_rows+1):
@@ -182,16 +188,16 @@ class QPlayer(Player):
         # start with 100 % exploration
         self.exploration = 1.0
         self.final_exploration = 0.02
-        self.exploration_fraction = 10000
+        self.exploration_fraction = 100000
 
         self.expl_update = (self.exploration - self.final_exploration) / self.exploration_fraction
 
-        self.alpha = 0.3
+        self.alpha = 0.1
         self.gamma = 0.9
 
         self.update = True
 
-
+        self.step = 0
 
         self.Q = {}
         self.load()
@@ -220,25 +226,16 @@ class QPlayer(Player):
         self.Q[state][action] = self.getQ(state, action) * (1 - self.alpha) + \
                 self.alpha * (reward + self.gamma * max_q_next)
 
+        self.step += 1
+
 
     def play(self, board, player=None, train=False):
         state = self.to_state(board)
-        actions = []
-        if False: #train:
-            for r in range(self.board_rows+1):
-                for c in range(self.board_cols+1):
-                    for o in [0, 1]:
-                        actions.append((r, c, o))
-        else:
-            actions = self.get_possible_moves(board)
-
-        if len(actions) == 0:
-            print(board)
-            raise Exception()
 
         if train and random.random() < self.exploration:
-            return random.choice(actions)
+            return random.choice(self.all_moves)
         else:
+            actions = self.all_moves if train else self.get_possible_moves(board)
             return max(actions, key=(lambda a: self.getQ(state, a)))
 
     def reward(self, board, action, next_board, reward, done, player=None):
@@ -251,6 +248,10 @@ class QPlayer(Player):
         if next_board is not None:
             next_state = self.to_state(next_board)
         self.updateQ(state, action, next_state, reward, done)
+
+    def summary(self):
+        print("step:", self.step, "exploration:", self.exploration)
+
 
     def get_save_name(self):
         name = "q_value" + str(self.board_rows) + "x" + str(self.board_cols) + ".pickle"
@@ -276,6 +277,7 @@ class Game:
         self.players = [player1(size), player2(size)]
         self.rand_start = True
         self.start_player = 0
+        self.cur_player = self.start_player
 
         self.play_times = [0, 0]
         self.steps = [0, 0]
@@ -283,7 +285,7 @@ class Game:
 
     def reset(self):
         self.board = Board(self.size[0], self.size[1])
-        self.cur_player = random.randint(0, 1) if self.rand_start else self.start_player
+        self.cur_player =  1 - self.cur_player if self.rand_start else self.start_player #random.randint(0, 1)
         self.ended = False
         self.winner = None
         self.score = [0, 0]
@@ -422,13 +424,13 @@ class Game:
                                            None, REWARD_WIN, True, w)
                     self.players[l].reward(self.last_boards[l], self.last_actions[l],
                                            None, REWARD_LOSE, True, l)
-            elif captured:
-                cur_player.reward(self.last_boards[cp], self.last_actions[cp], self.board,
-                                    REWARD_BOX, False, cp)
-            elif self.last_boards[op] is not None:
-                other_player.reward(self.last_boards[op], self.last_actions[op], self.board,
-                                    REWARD_PLAY, False, op)
-
+            else:
+                if captured:
+                    cur_player.reward(self.last_boards[cp], self.last_actions[cp], self.board,
+                                        REWARD_BOX, False, cp)
+                elif self.last_boards[op] is not None:
+                    other_player.reward(self.last_boards[op], self.last_actions[op], self.board,
+                                        REWARD_PLAY, False, op)
         # next player:
         if not captured and not self.ended:
             self.cur_player = 1 - self.cur_player
@@ -557,7 +559,7 @@ if __name__ == '__main__':
 
     if SELF_PLAY:
         if OLDER_PLAY:
-            g.players[1] = QPlayer((3, 3))
+            g.players[1] = QPlayer((2, 2))
             #g.players[1].Q = g.players[0].Q
             g.players[1].update = False
         else:

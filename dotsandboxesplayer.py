@@ -26,13 +26,13 @@ DISCOUNT_GAMMA = 0.99
 
 UPDATE_TARGET_INTERVAL = 500
 
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 
 REPLAY_BUFFER_SIZE = 10000
 
-GRADIENT_CLIPPING_NORM = 1
+GRADIENT_CLIPPING_NORM = 10
 
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 5e-4
 
 # run parameters:
 TRAIN = True
@@ -47,7 +47,7 @@ GREEDY_PLAY = True
 
 PRINT_QS = False
 
-BOARD_SIZE = (3, 3)
+BOARD_SIZE = (2, 2)
 
 TRAIN_GAMES = 100000
 
@@ -307,6 +307,11 @@ class DQNPlayer(Player):
                 for o in [0, 1]: # TODO: -1 for illegal positions
                     if board.state[r][c][o] != 0:
                         ret[r][c][o] = 1.0
+                    elif o == 0 and r == self.state_rows-1:
+                        ret[r][c][o] = -1.0 
+                    elif o == 1 and c == self.state_cols-1:
+                        ret[r][c][o] = -1.0 
+
         return ret
 
     def get_valid_mask(self, state):
@@ -434,7 +439,7 @@ def DQNPlayer_creator(predictor_func, name):
 layers = [
     (tf.nn.relu, 64),
     (tf.nn.relu, 256),
-    (tf.nn.relu, 128),
+    (tf.nn.relu, 64),
     (tf.nn.relu, 32)
 ]
 
@@ -464,9 +469,9 @@ def create_rnn_network(state):
     state_grid = unroll2DRNN(cells, state, init_state)
 
     sub_network = create_fully_connected("output", 4 * state_size, [
-        (tf.nn.relu, 256),
         (tf.nn.relu, 64),
-        (tf.nn.relu, 8),
+        (tf.nn.relu, 256),
+        (tf.nn.relu, 32),
         (None, 2)
     ])
 

@@ -14,9 +14,9 @@ HORZ = 1
 ACTIONS = ["v", "h"]
 ACTION_N = {"v": 0, "h": 1}
 
-REWARD_CHEAT = -200
+REWARD_CHEAT = -500
 
-REWARD_WIN = 200
+REWARD_WIN = 100
 REWARD_LOSE = -100
 
 REWARD_TIE = 0
@@ -129,7 +129,8 @@ class Player:
         for row in range(self.board_rows+1):
             for col in range(self.board_cols+1):
                 for dir in [0, 1]:
-                    self.all_moves.append((row, col, dir))
+                    if row < self.board_rows or col < self.board_cols:
+                        self.all_moves.append((row, col, dir))
 
     def get_possible_moves(self, board):
         poss = []

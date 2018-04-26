@@ -36,5 +36,8 @@ def unroll2DRNN(cells, inputs, input_state):
 def concat2D(input_grid):
     return [[tf.concat(v, axis=1) for v in y_arr] for y_arr in input_grid]
 
+def sum2D(input_grid):
+    return [[tf.add_n(v) for v in y_arr] for y_arr in input_grid]
+
 def apply2D(cell, input_grid):
     return [[cell(v) for v in y_arr] for y_arr in input_grid]

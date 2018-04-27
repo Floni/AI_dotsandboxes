@@ -187,7 +187,7 @@ class QPlayer(Player):
         super().__init__(grid, time_limit, player)
 
         # start with 100 % exploration
-        self.exploration = 1.0
+        self.exploration = 0.2
         self.final_exploration = 0.02
         self.exploration_fraction = 100000
 

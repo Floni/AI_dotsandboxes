@@ -17,14 +17,16 @@ from NN import *
 from MDRNN import *
 
 
+MIN_INF = float('-inf')
+
 # HYPER PARAMETERS:
 INITIAL_EXPLORATION = 0.01
 FINAL_EXPLORATION = 0.001
-EXPLORATION_STEPS = 30000
+EXPLORATION_STEPS = 50000
 
 DISCOUNT_GAMMA = 0.9
 
-UPDATE_TARGET_INTERVAL = 500
+UPDATE_TARGET_INTERVAL = 1000
 
 BATCH_SIZE = 32
 
@@ -37,7 +39,7 @@ LEARNING_RATE = 5e-4
 DOUBLE_Q_LEARNING = True
 
 # run parameters:
-TRAIN = False
+TRAIN = True
 
 RAND_START = True
 START_FIRST = False
@@ -52,6 +54,7 @@ PRINT_QS = False
 BOARD_SIZE = (3, 3)
 
 TRAIN_GAMES = 100000
+EVAL_GAMES = 500
 
 # from: https://github.com/openai/baselines/blob/master/baselines/common/tf_util.py
 def huber_loss(x, delta=1.0):
@@ -121,10 +124,10 @@ class DQNPlayer(Player):
             self.RIGHT_EDGE_MASK = tf.constant(RIGHT_EDGE_MASK, tf.float32)
             self.LOWER_EDGE_MASK = tf.constant(LOWER_EDGE_MASK, tf.float32)
 
-            self.LEFT_NEIGHBOUR_MASK  = tf.constant(LEFT_NEIGHBOUR_MASK,  tf.float32)            
+            self.LEFT_NEIGHBOUR_MASK  = tf.constant(LEFT_NEIGHBOUR_MASK,  tf.float32)
             self.UPPER_NEIGHBOUR_MASK = tf.constant(UPPER_NEIGHBOUR_MASK, tf.float32)
-            self.RIGHT_NEIGHBOUR_MASK = tf.constant(RIGHT_NEIGHBOUR_MASK, tf.float32)            
-            self.LOWER_NEIGHBOUR_MASK = tf.constant(LOWER_NEIGHBOUR_MASK, tf.float32)            
+            self.RIGHT_NEIGHBOUR_MASK = tf.constant(RIGHT_NEIGHBOUR_MASK, tf.float32)
+            self.LOWER_NEIGHBOUR_MASK = tf.constant(LOWER_NEIGHBOUR_MASK, tf.float32)
 
             self.create_graph()
             self.session.run(tf.global_variables_initializer())
@@ -154,7 +157,7 @@ class DQNPlayer(Player):
                 else:
                     upper = input
                     upper_masked = self.UPPER_EDGE_MASK * upper
-                
+
                 if row < self.state_rows-1:
                     lower = inpt_array[row+1][col]
                     lower_masked = tf.transpose(tf.matmul(self.LOWER_NEIGHBOUR_MASK, lower, transpose_b=True))
@@ -168,7 +171,7 @@ class DQNPlayer(Player):
                 else:
                     left = input
                     left_masked = self.LEFT_EDGE_MASK * left
-                
+
                 if col < self.state_cols-1:
                     right = inpt_array[row][col+1]
                     right_masked = tf.transpose(tf.matmul(self.RIGHT_NEIGHBOUR_MASK, right, transpose_b=True))
@@ -182,8 +185,8 @@ class DQNPlayer(Player):
     def get_batch(self):
         return random.sample(self.replay_mem, k=self.batch_size)
 
-    def add_mem(self, state, action, next_state, reward, done):  #state_valid, next_state_valid):
-        self.replay_mem.append((state, action, next_state, reward, done))
+    def add_mem(self, state, action, next_state, reward, done, next_state_valid):  #state_valid, next_state_valid):
+        self.replay_mem.append((state, action, next_state, reward, done, next_state_valid))
 
     def create_graph(self):
         """
@@ -198,14 +201,14 @@ class DQNPlayer(Player):
             with tf.variable_scope("q_network"):
                 self.q_outputs = self.predictor_func(self.States)
 
+            # no need for valid action mask as if the chosen actions are valid non valid actions are never trained.
             #self.Valid_Action_Mask = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, 2], name="valid_in")
 
             self.action_scores = self.average_cell(self.q_outputs) #* self.Valid_Action_Mask
 
         with tf.name_scope("calc_q_vals"):
             self.Next_States = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="next_states_in")
-            #self.Valid_Next_Action_Mask = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, 2], name="next_valid_in")
-
+            self.Valid_Next_Action_Mask = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="next_valid_in")
             #test_mask = (1 - self.Valid_Next_Action_Mask) * REWARD_CHEAT # less then min reward
 
             # for when in final state to mask max(Q(next, a)) (if done is true, mask == 0)
@@ -214,7 +217,7 @@ class DQNPlayer(Player):
             if DOUBLE_Q_LEARNING:
                 with tf.variable_scope("q_network", reuse=True):
                     q_next_out = self.predictor_func(self.Next_States)
-                q_next_scores = self.average_cell(q_next_out) #* self.Valid_Next_Action_Mask + test_mask
+                q_next_scores = self.average_cell(q_next_out) + self.Valid_Next_Action_Mask#* self.Valid_Next_Action_Mask + test_mask
 
                 action_size = self.state_rows*self.state_cols*self.state_depth
                 action_selection = tf.argmax(tf.reshape(q_next_scores, [-1, action_size]), axis=1)
@@ -230,7 +233,7 @@ class DQNPlayer(Player):
                     self.target_outputs = self.predictor_func(self.Next_States)
 
                 # don't update target network while learning:
-                self.next_action_scores = self.average_cell(self.target_outputs) # * self.Valid_Next_Action_Mask # + test_mask
+                self.next_action_scores = self.average_cell(self.target_outputs) + self.Valid_Next_Action_Mask# * self.Valid_Next_Action_Mask # + test_mask
 
                 self.target_values = tf.reduce_max(self.next_action_scores, axis=(1, 2, 3)) * self.Next_State_Mask
 
@@ -308,11 +311,11 @@ class DQNPlayer(Player):
 
     def updateQ(self, state, action, next_state, reward, done):
         #state_valid = self.get_valid_mask(state)
-        #next_state_valid = None
-        #if not done:
-        #    next_state_valid = self.get_valid_mask(next_state)
+        next_state_valid = None
+        if not done:
+            next_state_valid = self.get_valid_mask(next_state)
 
-        self.add_mem(state, action, next_state, reward, done) #, state_valid, next_state_valid)
+        self.add_mem(state, action, next_state, reward, done, next_state_valid) #, state_valid, next_state_valid)
         if len(self.replay_mem) < self.batch_size:
             return
 
@@ -321,17 +324,17 @@ class DQNPlayer(Player):
         batch_states = []
         #batch_valid_mask = []
         batch_next_states = []
-        #batch_next_valid_mask = []
+        batch_next_valid_mask = []
         batch_rewards = []
 
         batch_action_mask = np.zeros((self.batch_size, self.state_rows, self.state_cols, self.state_depth))
         batch_next_state_mask = np.zeros(self.batch_size)
 
-        for idx, (state, action, next_state, reward, b_done) in enumerate(batch): #, state_valid, next_state_valid)
+        for idx, (state, action, next_state, reward, b_done, next_state_valid) in enumerate(batch): #, state_valid, next_state_valid)
             batch_states.append(state)
             #batch_valid_mask.append(state_valid)
             batch_rewards.append(reward)
-            
+
             co, oco = self.to_state_coords(*action)
             batch_action_mask[idx][co[0]][co[1]][co[2]] = 1
             if oco is not None:
@@ -340,10 +343,10 @@ class DQNPlayer(Player):
             if not b_done:
                 batch_next_state_mask[idx] = 1
                 batch_next_states.append(next_state)
-                #batch_next_valid_mask.append(next_state_valid)
+                batch_next_valid_mask.append(next_state_valid)
             else:
                 batch_next_states.append(self.null_state)
-                #batch_next_valid_mask.append(self.null_state)
+                batch_next_valid_mask.append(self.null_state)
 
         do_summary = self.idx % 100 == 0
         avg_reward_cur = 0
@@ -352,21 +355,25 @@ class DQNPlayer(Player):
             self.tot_reward = 0
             self.reward_idx = 0
 
-        _summary, _, _loss, _train_step = self.session.run([
+        _summary, _, _loss, _train_step, test1 = self.session.run([
             self.sum_merged if do_summary else self.noop,
             self.avg_reward_op if do_summary else self.noop,
             self.loss,
-            self.train_op
+            self.train_op,
+            self.target_values
         ], feed_dict={
             self.States: batch_states,
             #self.Valid_Action_Mask: batch_valid_mask,
             self.Next_States: batch_next_states,
-            #self.Valid_Next_Action_Mask: batch_next_valid_mask,
+            self.Valid_Next_Action_Mask: batch_next_valid_mask,
             self.Action_Mask: batch_action_mask,
             self.Rewards: batch_rewards,
             self.Next_State_Mask: batch_next_state_mask,
             self.avg_reward: avg_reward_cur
         })
+
+        #print(test1)
+        #print(test2)
 
         if do_summary:
             self.sum_writer.add_summary(_summary, global_step=self.global_step.eval(self.session))
@@ -395,11 +402,11 @@ class DQNPlayer(Player):
             for col in range(board.nb_cols+1):
                 h = 1 if board.get(row, col, HORZ) != 0 else 0
                 v = 1 if board.get(row, col, VERT) != 0 else 0
-                
+
                 if row < self.state_rows and col < self.state_cols:
                     ret[row][col][UPPER] = h
                     ret[row][col][LEFT] = v
-                
+
                 if row > 0 and col < self.state_cols:
                     ret[row-1][col][LOWER] = h
                 if col > 0 and row < self.state_rows:
@@ -407,14 +414,14 @@ class DQNPlayer(Player):
         return ret
 
     def get_valid_mask(self, state):
-        assert False
-        poss = np.zeros((self.state_rows, self.state_cols, 2))
+        poss = np.zeros((self.state_rows, self.state_cols, self.state_depth))
         for row in range(self.state_rows):
             for col in range(self.state_cols):
-                if row < self.state_rows-1 and state[row][col][VERT] == 0:
-                    poss[row][col][VERT] = 1
-                if col < self.state_cols-1 and state[row][col][HORZ] == 0:
-                    poss[row][col][HORZ] = 1
+                for edge in range(self.state_depth):
+                    if state[row][col][edge] == 0:
+                        poss[row][col][edge] = 0
+                    else:
+                        poss[row][col][edge] = MIN_INF
         return poss
 
 
@@ -424,9 +431,9 @@ class DQNPlayer(Player):
             #self.Valid_Action_Mask: self.get_valid_mask(state).reshape((1, self.state_rows, self.state_cols, 2))
         })[0]
 
-    
+
     def to_state_coords(self, row, col, orient):
-        if row < self.state_cols and col < self.state_cols:
+        if row < self.state_rows and col < self.state_cols:
             oo = 1 - orient
             other = None if row == 0 or col == 0 else (row - orient, col - oo, 2 + orient)
 
@@ -440,17 +447,16 @@ class DQNPlayer(Player):
             raise Exception("Illegal move: " + str(row) + " " + str(col))
 
         return (row, col, 2 + orient), None
-    
+
 
     def play(self, board, player=None, train=False):
         state = self.to_state(board)
         Q_values = self.getQs(state)
 
-
         if train and random.random() < self.exploration:
-            return random.choice(self.all_moves) if self.exploration > 0.01 else random.choice(self.get_possible_moves(board))
+            return random.choice(self.get_possible_moves(board))
         else:
-            actions = self.all_moves if train else self.get_possible_moves(board)
+            actions = self.get_possible_moves(board)
 
             def map_func(act):
                 c, _ = self.to_state_coords(*act)
@@ -633,7 +639,8 @@ def main():
         g.players[1].update = False
 
     if QPLAYER:
-        g.players[1].epsilon = 0
+        g.players[1].exploration = 0
+        g.players[1].final_exploration = 0
 
     if TRAIN:
         print("training")
@@ -643,7 +650,7 @@ def main():
             pass
 
     print("evaluating")
-    g.eval(1000)
+    g.eval(EVAL_GAMES)
 
     if TRAIN:
         print("saving Q values")
@@ -654,9 +661,11 @@ def main():
     if PRINT_QS:
         g.reset()
         g.board.set(0, 0, VERT, 1)
-        #g.board.set(1, 0, HORZ, 2)
+        g.board.set(0, 0, HORZ, 1)
+        g.board.set(0, 1, VERT, 1)
         p = g.players[0]
         state = p.to_state(g.board)
+        print(state)
         print("Qs:")
         print(p.getQs(state))
         print("without average:")

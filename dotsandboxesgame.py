@@ -270,7 +270,7 @@ class QPlayer(Player):
 
         self.expl_update = (self.exploration - self.final_exploration) / self.exploration_fraction
 
-        self.alpha = 0.1
+        self.alpha = 0.3
         self.gamma = 0.9
 
         self.update = True
@@ -322,11 +322,11 @@ class QPlayer(Player):
     def play(self, board, player=None, train=False):
         """Plays randomly with exploration probability during training"""
         state = self.to_state(board)
+        actions = self.get_possible_moves(board)
 
         if train and random.random() < self.exploration:
-            return random.choice(self.all_moves)
+            return random.choice(actions)
         else:
-            actions = self.all_moves if train else self.get_possible_moves(board)
             return max(actions, key=(lambda a: self.getQ(state, a)))
 
     def reward(self, board, action, next_board, reward, done, player=None):
@@ -435,6 +435,8 @@ class Game:
         """lets one player move and updates the board, also rewards the player if train is true"""
         assert not self.ended
 
+        cp = self.cur_player
+        op = 1 - cp
         cur_player = self.players[self.cur_player]
         other_player = self.players[1-self.cur_player]
 
@@ -455,8 +457,6 @@ class Game:
 
         # give reward:
         if train:
-            cp = self.cur_player
-            op = 1 - cp
             if cheated:
                 cur_player.reward(self.last_boards[cp], self.last_actions[cp],
                                   None, REWARD_CHEAT, True, cp)

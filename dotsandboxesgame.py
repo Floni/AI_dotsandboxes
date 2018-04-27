@@ -60,12 +60,25 @@ class Board:
         # [vertical, horizontal, captured player]
         self.state = [[[0, 0, 0] for _ in range(nb_cols+1)] for _ in range(nb_rows+1)]
 
+        self.scores = [0, 0]
+
+    def copy(self):
+        """Creates a new board containing the same data as the current board"""
+        ret = Board(self.nb_rows, self.nb_cols)
+        for row in range(self.nb_rows+1):
+            for col in range(self.nb_cols+1):
+                ret.state[row][col][0] = self.state[row][col][0]
+                ret.state[row][col][1] = self.state[row][col][1]
+        ret.scores = self.scores.copy()
+        return ret
+
     def capture(self, row, col, player=None):
         """Let player capture the given cell"""
         if player is None:
             col = row[1]
             row = row[0]
         self.state[row][col][2] = player
+        self.scores[player-1] += 1
 
     def get(self, row, col, dir=None):
         """Returns the value at the given edge position"""
@@ -97,14 +110,62 @@ class Board:
 
         self.state[row][col_dir][dir_val] = value
 
-    def copy(self):
-        """Creates a new board containing the same data as the current board"""
-        ret = Board(self.nb_rows, self.nb_cols)
-        for row in range(self.nb_rows+1):
-            for col in range(self.nb_cols+1):
-                ret.state[row][col][0] = self.state[row][col][0]
-                ret.state[row][col][1] = self.state[row][col][1]
-        return ret
+    def do_move(self, row, col, d, player):
+        cheated = False
+        captured = False
+
+        if (row == self.nb_rows and d != HORZ) or \
+            (col == self.nb_cols and d != VERT) or \
+            self.get(row, col, d) != 0:
+
+            cheated = True
+        else:
+            self.set(row, col, d, player)
+            # check captured box
+            if d == HORZ:
+                if row > 0 and \
+                    self.get(row-1, col, VERT) != 0 and \
+                    self.get(row-1, col+1, VERT) != 0 and \
+                    self.get(row-1, col, HORZ) != 0 and \
+                    self.get(row, col, HORZ) != 0:
+                    captured = True
+                    self.capture(row-1, col, player)
+                if row < self.nb_rows and \
+                    self.get(row, col, VERT) != 0 and \
+                    self.get(row, col+1, VERT) != 0 and \
+                    self.get(row, col, HORZ) != 0 and \
+                    self.get(row+1, col, HORZ) != 0:
+                    captured = True
+                    self.capture(row, col, player)
+            if d == VERT:
+                if col > 0 and \
+                    self.get(row, col-1, VERT) != 0 and \
+                    self.get(row, col, VERT) != 0 and \
+                    self.get(row, col-1, HORZ) != 0 and \
+                    self.get(row+1, col-1, HORZ) != 0:
+                    captured = True
+                    self.capture(row, col-1, player)
+                if col < self.nb_cols and \
+                    self.get(row, col, VERT) != 0 and \
+                    self.get(row, col+1, VERT) != 0 and \
+                    self.get(row, col, HORZ) != 0 and \
+                    self.get(row+1, col, HORZ) != 0:
+                    captured = True
+                    self.capture(row, col, player)
+        return cheated, captured
+
+    def has_ended(self):
+        return self.scores[0] + self.scores[1] == self.nb_cols * self.nb_rows
+
+    def get_winner(self):
+        if self.scores[0] > self.scores[1]:
+            return 1
+        elif self.scores[1] > self.scores[0]:
+            return 2
+        return 0
+
+    def get_score(self, player):
+        return self.scores[player-1]
 
     def __repr__(self):
         return str(self)
@@ -125,6 +186,7 @@ class Board:
                 line2 += " 12"[o]
             ret += line1 + "\n"
             ret += line2 + "\n"
+        ret += "scores: " + str(self.scores) + " ended: " + str(self.has_ended())
         return ret
 
 class Player:
@@ -325,7 +387,6 @@ class Game:
         self.cur_player =  1 - self.cur_player if self.rand_start else self.start_player #random.randint(0, 1)
         self.ended = False
         self.winner = None
-        self.score = [0, 0]
         self.cheated = False
 
         self.last_boards = [None, None]
@@ -344,82 +405,29 @@ class Game:
         ret.cur_player = self.cur_player
         ret.ended = self.ended
         ret.winner = self.winner
-        ret.score = [self.score[0], self.score[1]]
         ret.cheated = self.cheated
         ret.last_boards = self.last_actions.copy()
         ret.last_actions = self.last_actions.copy()
 
-    def step_move(self, move):
-        """applies move to the current game"""
-        assert not self.ended
+    def update_board(self, row, col, d):
+        """updates the board for the given move, also updates scores"""
+        # update board
+        cheated, captured = self.board.do_move(row, col, d, self.cur_player+1)
+        if cheated:
+            self.ended = True
+        self.cheated = cheated
 
-        row, col, d = move
-        _, captured = self.update_board(row, col, d)
+        # check win
+        if self.board.has_ended():
+            # game over
+            self.ended = True
+            self.winner = self.board.get_winner() - 1
+            if self.winner < 0:
+                self.winner = None
 
         # next player:
         if not captured and not self.ended:
             self.cur_player = 1 - self.cur_player
-
-    def update_board(self, row, col, d):
-        """updates the board for the given move, also updates scores"""
-        # update board
-        cheated = False
-        captured = False
-
-        if (row == self.size[0] and d != HORZ) or \
-            (col == self.size[1] and d != VERT) or \
-            self.board.get(row, col, d) != 0:
-
-            cheated = True
-            self.ended = True
-        else:
-            self.board.set(row, col, d, self.cur_player+1)
-            # check captured box
-            if d == HORZ:
-                if row > 0 and \
-                    self.board.get(row-1, col, VERT) != 0 and \
-                    self.board.get(row-1, col+1, VERT) != 0 and \
-                    self.board.get(row-1, col, HORZ) != 0 and \
-                    self.board.get(row, col, HORZ) != 0:
-                    captured = True
-                    self.score[self.cur_player] += 1
-                    self.board.capture(row-1, col, self.cur_player+1)
-                if row < self.size[0] and \
-                    self.board.get(row, col, VERT) != 0 and \
-                    self.board.get(row, col+1, VERT) != 0 and \
-                    self.board.get(row, col, HORZ) != 0 and \
-                    self.board.get(row+1, col, HORZ) != 0:
-                    captured = True
-                    self.score[self.cur_player] += 1
-                    self.board.capture(row, col, self.cur_player+1)
-            if d == VERT:
-                if col > 0 and \
-                    self.board.get(row, col-1, VERT) != 0 and \
-                    self.board.get(row, col, VERT) != 0 and \
-                    self.board.get(row, col-1, HORZ) != 0 and \
-                    self.board.get(row+1, col-1, HORZ) != 0:
-                    captured = True
-                    self.score[self.cur_player] += 1
-                    self.board.capture(row, col-1, self.cur_player+1)
-                if col < self.size[1] and \
-                    self.board.get(row, col, VERT) != 0 and \
-                    self.board.get(row, col+1, VERT) != 0 and \
-                    self.board.get(row, col, HORZ) != 0 and \
-                    self.board.get(row+1, col, HORZ) != 0:
-                    captured = True
-                    self.score[self.cur_player] += 1
-                    self.board.capture(row, col, self.cur_player+1)
-
-        # check win
-        if self.score[0] + self.score[1] == self.size[0]*self.size[1]:
-            # game over
-            self.ended = True
-            if self.score[0] > self.score[1]:
-                self.winner = 0
-            elif self.score[1] > self.score[0]:
-                self.winner = 1
-
-        self.cheated = cheated
 
         return cheated, captured
 
@@ -453,7 +461,7 @@ class Game:
                 cur_player.reward(self.last_boards[cp], self.last_actions[cp],
                                   None, REWARD_CHEAT, True, cp)
             elif self.ended:
-                if self.score[0] == self.score[1]:
+                if self.winner is None:
                     cur_player.reward(self.last_boards[cp], self.last_actions[cp],
                                       None, REWARD_TIE, True, cp)
                     other_player.reward(self.last_boards[op], self.last_actions[op],
@@ -472,9 +480,6 @@ class Game:
                 elif self.last_boards[op] is not None:
                     other_player.reward(self.last_boards[op], self.last_actions[op], self.board,
                                         REWARD_PLAY, False, op)
-        # next player:
-        if not captured and not self.ended:
-            self.cur_player = 1 - self.cur_player
 
     def play_game(self):
         """Plays one game, printing the board after each move"""
@@ -514,14 +519,13 @@ class Game:
 
             if self.cheated:
                 cheats[self.cur_player] += 1
-            elif self.winner is None:
-                draws += 1
-                scores[0] += self.score[0]
-                scores[1] += self.score[1]
             else:
-                scores[0] += self.score[0]
-                scores[1] += self.score[1]
-                wins[self.winner] += 1
+                scores[0] += self.board.get_score(1)
+                scores[1] += self.board.get_score(2)
+                if self.winner is None:
+                    draws += 1
+                else:
+                    wins[self.winner] += 1
 
             if train and idx % 1000 == 0:
                 self.players[0].summary()
@@ -558,7 +562,6 @@ class Game:
 
     def __str__(self):
         ret = str(self.board) + "\n"
-        ret += "score: " + str(self.score) + " ended: " + str(self.ended)
         if self.ended and self.winner is not None:
             ret += "\nwinner: " + str(self.winner+1)
         if self.ended and self.cheated:

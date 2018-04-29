@@ -40,7 +40,7 @@ LEARNING_RATE = 5e-4
 DOUBLE_Q_LEARNING = True
 
 # run parameters:
-TRAIN = False
+TRAIN = True
 
 RAND_START = True
 START_FIRST = False
@@ -388,6 +388,7 @@ class DQNPlayer(Player):
             self.sum_writer.flush()
 
         # update target:
+        self.idx += 1
         if self.idx % UPDATE_TARGET_INTERVAL == 0:
             self.session.run(self.target_set_op) # change to target_update_op for alpha use
 
@@ -399,7 +400,6 @@ class DQNPlayer(Player):
         if done:
             self.reward_idx += 1
 
-        self.idx += 1
         self.loss_tot += _loss
         if self.idx % 100 == 0:
             self.loss_list.append(self.loss_tot / 100)
@@ -589,12 +589,18 @@ def create_network(state):
     output_shaped = tf.reshape(output, (-1, nb_rows, nb_cols, 4))
     return output_shaped
 
+init_state_test = None
+
 def create_rnn_network(state):
+    global init_state_test
+
     state_size = 64
 
-    test_shape = tf.shape(state)[0]
-    # TODO: make placeholder, don't require test_shape for dynamic size
-    init_state = tf.zeros([test_shape, state_size])
+    batch_size = tf.shape(state)[0]
+
+    init_state_var = tf.get_variable("InitState", [1, state_size], initializer=tf.zeros_initializer)
+    init_state = tf.tile(init_state_var, [batch_size, 1])#tf.zeros([batch_size, state_size])
+    init_state_test = init_state_var
 
     cells = [Dense("cell", 2 * state_size + 4, state_size, activation=tf.tanh)] * 4
     state_grid = unroll2DRNN(cells, state, init_state)
@@ -678,9 +684,12 @@ def main():
         print("Qs:")
         print(p.getQs(state))
         print("without average:")
-        print(p.session.run(p.q_outputs, feed_dict={
+        a, b = p.session.run([ init_state_test, p.q_outputs], feed_dict={
             p.States: state.reshape((1, p.state_rows, p.state_cols, p.state_depth)),
-        })[0])
+        })
+        print(b)
+        print("init state:")
+        print(a)
 
     print("done")
 

@@ -35,6 +35,8 @@ REPLAY_BUFFER_SIZE = 10000
 
 GRADIENT_CLIPPING_NORM = 10
 
+REGULARIZATION_FACTOR = 1e-4
+
 LEARNING_RATE = 5e-4
 
 DOUBLE_Q_LEARNING = True
@@ -109,6 +111,8 @@ class DQNPlayer(Player):
 
         self.max_gradient = GRADIENT_CLIPPING_NORM
 
+        self.reg_param = REGULARIZATION_FACTOR
+
         self.replay_mem = deque(maxlen=REPLAY_BUFFER_SIZE)
 
         self.update = True
@@ -138,14 +142,14 @@ class DQNPlayer(Player):
 
     def reset_summary(self):
         self.idx = 0
-        self.loss_tot = 0
-        self.loss_list = []
 
         self.reward_idx = 0
-        self.avg_reward_list = []
         self.tot_reward = 0
-        self.last_avg_reward = 0
+        self.tot_wins = 0
+        self.tot_losses = 0
+        self.tot_ties = 0
 
+        self.last_avg_reward = 0
 
     def average_cell(self, state):
         output = [[None] * self.state_cols for _ in range(self.state_rows)]
@@ -254,11 +258,11 @@ class DQNPlayer(Player):
             self.td_loss = tf.reduce_mean(huber_loss(self.temp_diff))
             tf.summary.scalar('td_loss', self.td_loss)
 
-            #q_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
-            #self.reg_loss = self.reg_param * tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in q_net_vars])
-            #tf.summary.scalar('reg_loss', self.reg_loss)
-            self.loss = self.td_loss #+ self.reg_loss
-            #tf.summary.scalar('loss', self.loss)
+            q_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
+            self.reg_loss = self.reg_param * tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in q_net_vars])
+            tf.summary.scalar('reg_loss', self.reg_loss)
+            self.loss = self.td_loss + self.reg_loss
+            tf.summary.scalar('loss', self.loss)
 
             self.optimizer = tf.train.AdamOptimizer(LEARNING_RATE) #tf.train.RMSPropOptimizer(learning_rate=0.0001, decay=0.9)
 
@@ -312,9 +316,22 @@ class DQNPlayer(Player):
 
         with tf.name_scope("reward_summary"):
             self.avg_reward = tf.placeholder(tf.float32, name='avg_reward')
-            self.avg_reward_var = tf.get_variable("avg_reward_var", shape=())
-            tf.summary.scalar('Last 100 avg. reward', self.avg_reward_var)
-            self.avg_reward_op = self.avg_reward_var.assign(self.avg_reward)
+            self.avg_wins = tf.placeholder(tf.float32, name='avg_wins')
+            self.avg_losses = tf.placeholder(tf.float32, name='avg_losses')
+            self.avg_ties = tf.placeholder(tf.float32, name='avg_ties')
+
+            #self.avg_reward_var = tf.get_variable("avg_reward_var", shape=())
+            tf.summary.scalar('avg_Reward', self.avg_reward)
+            tf.summary.scalar('avg_wins', self.avg_wins)
+            tf.summary.scalar('avg_losses', self.avg_losses)
+            tf.summary.scalar('avg_ties', self.avg_ties)
+
+            q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
+            target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_network")
+
+            reg_norm = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in q_vars])
+            tf.summary.scalar('l2_norm_q_vars', reg_norm)
+
             self.noop = tf.no_op()
 
         self.sum_merged = tf.summary.merge_all()
@@ -341,10 +358,10 @@ class DQNPlayer(Player):
         batch_action_mask = np.zeros((self.batch_size, self.state_rows, self.state_cols, self.state_depth))
         batch_next_state_mask = np.zeros(self.batch_size)
 
-        for idx, (state, action, next_state, reward, b_done, next_state_valid) in enumerate(batch): #, state_valid, next_state_valid)
+        for idx, (state, action, next_state, b_reward, b_done, next_state_valid) in enumerate(batch): #, state_valid, next_state_valid)
             batch_states.append(state)
             #batch_valid_mask.append(state_valid)
-            batch_rewards.append(reward)
+            batch_rewards.append(b_reward)
 
             co, oco = self.to_state_coords(*action)
             batch_action_mask[idx][co[0]][co[1]][co[2]] = 1
@@ -359,17 +376,29 @@ class DQNPlayer(Player):
                 batch_next_states.append(self.null_state)
                 batch_next_valid_mask.append(self.null_state)
 
-        do_summary = self.reward_idx == 100
+        do_summary = self.reward_idx == 100 or self.idx == 0
         avg_reward_cur = 0
+        avg_wins_cur = 0
+        avg_losses_cur = 0
+        avg_ties_cur = 0
         if do_summary:
-            avg_reward_cur = self.tot_reward / self.reward_idx if self.reward_idx != 0 else 0
+            if self.reward_idx != 0:
+                avg_reward_cur = self.tot_reward / self.reward_idx
+                avg_wins_cur   = self.tot_wins / self.reward_idx
+                avg_losses_cur = self.tot_losses / self.reward_idx
+                avg_ties_cur   = self.tot_ties / self.reward_idx
+
             self.tot_reward = 0
+            self.tot_losses = 0
+            self.tot_wins = 0
+            self.tot_ties = 0
+
             self.reward_idx = 0
+
             self.last_avg_reward = avg_reward_cur
 
-        _summary, _, _loss, _train_step = self.session.run([
+        _summary, _loss, _train_step = self.session.run([
             self.sum_merged if do_summary else self.noop,
-            self.avg_reward_op if do_summary else self.noop,
             self.loss,
             self.train_op
         ], feed_dict={
@@ -380,7 +409,10 @@ class DQNPlayer(Player):
             self.Action_Mask: batch_action_mask,
             self.Rewards: batch_rewards,
             self.Next_State_Mask: batch_next_state_mask,
-            self.avg_reward: avg_reward_cur
+            self.avg_reward: avg_reward_cur,
+            self.avg_wins: avg_wins_cur,
+            self.avg_losses: avg_losses_cur,
+            self.avg_ties: avg_ties_cur
         })
 
         if do_summary:
@@ -397,13 +429,18 @@ class DQNPlayer(Player):
 
         # for summary:
         self.tot_reward += reward
+        if done and reward == REWARD_WIN:
+            self.tot_wins += 1
+        elif done and reward == REWARD_LOSE:
+            self.tot_losses += 1
+        elif done and reward == REWARD_TIE:
+            print("tie!!!")
+            self.tot_ties += 1
+
         if done:
             self.reward_idx += 1
-
-        self.loss_tot += _loss
-        if self.idx % 100 == 0:
-            self.loss_list.append(self.loss_tot / 100)
-            self.loss_tot = 0
+        elif reward != 0:
+            print("ERROR, has reward")
 
 
     def to_state(self, board):
@@ -538,8 +575,8 @@ class DQNPlayer(Player):
 
     def summary(self):
         t = time.time()
-        print("Step: {}, eps: {:.3f}, avg. loss: {:.1f}, avg. reward: {:.2f}, time: {:.2f}"
-            .format(self.idx, self.exploration, sum(self.loss_list[-10:]) / 10, self.last_avg_reward, t - self.last_time))
+        print("Step: {}, eps: {:.3f}, avg. reward: {:.2f}, time: {:.2f}"
+            .format(self.idx, self.exploration, self.last_avg_reward, t - self.last_time))
         self.last_time = t
 
     def get_save_name(self):

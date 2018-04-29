@@ -20,11 +20,12 @@ from MDRNN import *
 MIN_INF = float('-inf')
 
 # HYPER PARAMETERS:
-INITIAL_EXPLORATION = 0.01
+INITIAL_EXPLORATION = 0.1
 FINAL_EXPLORATION = 0.001
 EXPLORATION_STEPS = 50000
 
 DISCOUNT_GAMMA = 0.9
+ALPHA = 1.0 # NOT USED CURRENTLY
 
 UPDATE_TARGET_INTERVAL = 1000
 
@@ -39,7 +40,7 @@ LEARNING_RATE = 5e-4
 DOUBLE_Q_LEARNING = True
 
 # run parameters:
-TRAIN = True
+TRAIN = False
 
 RAND_START = True
 START_FIRST = False
@@ -102,6 +103,7 @@ class DQNPlayer(Player):
         self.expl_update = (self.exploration - self.final_exploration) / EXPLORATION_STEPS
 
         self.gamma = DISCOUNT_GAMMA
+        self.alpha = ALPHA
 
         self.batch_size = BATCH_SIZE
 
@@ -131,7 +133,7 @@ class DQNPlayer(Player):
 
             self.create_graph()
             self.session.run(tf.global_variables_initializer())
-            self.session.run(self.target_update)
+            self.session.run(self.target_set_op)
             self.load()
 
     def reset_summary(self):
@@ -142,6 +144,7 @@ class DQNPlayer(Player):
         self.reward_idx = 0
         self.avg_reward_list = []
         self.tot_reward = 0
+        self.last_avg_reward = 0
 
 
     def average_cell(self, state):
@@ -269,15 +272,23 @@ class DQNPlayer(Player):
             self.train_op = self.optimizer.apply_gradients(zip(gradients, variables), global_step=self.global_step)
 
         with tf.name_scope("update_target"):
-            self.target_update = []
+            target_set = []
 
             q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
             target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_network")
+
             for v_q, v_target in zip(sorted(q_vars, key=lambda v: v.name), sorted(target_vars, key=lambda v: v.name)):
                 update_op = v_target.assign(v_q)
-                self.target_update.append(update_op)
+                target_set.append(update_op)
 
-            self.target_update = tf.group(*self.target_update)
+            self.target_set_op = tf.group(*target_set)
+
+            target_update = []
+            for v_q, v_target in zip(sorted(q_vars, key=lambda v: v.name), sorted(target_vars, key=lambda v: v.name)):
+                update_op = v_target.assign_sub(self.alpha * (v_target - v_q))
+                target_update.append(update_op)
+
+            self.target_update_op = tf.group(*target_update)
 
         #with tf.name_scope("train_pickle"):
         #    self.Correct_Qs = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, 2], name="CorrectQs")
@@ -348,19 +359,19 @@ class DQNPlayer(Player):
                 batch_next_states.append(self.null_state)
                 batch_next_valid_mask.append(self.null_state)
 
-        do_summary = self.idx % 100 == 0
+        do_summary = self.reward_idx == 100
         avg_reward_cur = 0
         if do_summary:
             avg_reward_cur = self.tot_reward / self.reward_idx if self.reward_idx != 0 else 0
             self.tot_reward = 0
             self.reward_idx = 0
+            self.last_avg_reward = avg_reward_cur
 
-        _summary, _, _loss, _train_step, test1 = self.session.run([
+        _summary, _, _loss, _train_step = self.session.run([
             self.sum_merged if do_summary else self.noop,
             self.avg_reward_op if do_summary else self.noop,
             self.loss,
-            self.train_op,
-            self.target_values
+            self.train_op
         ], feed_dict={
             self.States: batch_states,
             #self.Valid_Action_Mask: batch_valid_mask,
@@ -372,22 +383,21 @@ class DQNPlayer(Player):
             self.avg_reward: avg_reward_cur
         })
 
-        #print(test1)
-        #print(test2)
-
         if do_summary:
             self.sum_writer.add_summary(_summary, global_step=self.global_step.eval(self.session))
+            self.sum_writer.flush()
 
         # update target:
         if self.idx % UPDATE_TARGET_INTERVAL == 0:
-            self.session.run(self.target_update)
+            self.session.run(self.target_set_op) # change to target_update_op for alpha use
 
         # update exploration:
         self.exploration = max(self.final_exploration, self.exploration - self.expl_update)
 
         # for summary:
         self.tot_reward += reward
-        self.reward_idx += 1
+        if done:
+            self.reward_idx += 1
 
         self.idx += 1
         self.loss_tot += _loss
@@ -528,7 +538,8 @@ class DQNPlayer(Player):
 
     def summary(self):
         t = time.time()
-        print("Step: {}, eps: {:.3f}, avg. loss: {:.1f}, time: {:.2f}".format(self.idx, self.exploration, sum(self.loss_list[-10:]) / 10, t - self.last_time))
+        print("Step: {}, eps: {:.3f}, avg. loss: {:.1f}, avg. reward: {:.2f}, time: {:.2f}"
+            .format(self.idx, self.exploration, sum(self.loss_list[-10:]) / 10, self.last_avg_reward, t - self.last_time))
         self.last_time = t
 
     def get_save_name(self):
@@ -588,13 +599,13 @@ def create_rnn_network(state):
     cells = [Dense("cell", 2 * state_size + 4, state_size, activation=tf.tanh)] * 4
     state_grid = unroll2DRNN(cells, state, init_state)
 
-    sub_network = create_fully_connected("output", state_size, [
+    sub_network = create_fully_connected("output", 4 * state_size, [
         (tf.nn.relu, 128),
         (tf.nn.relu, 32),
         (None, 4)
     ])
 
-    concat_grid = sum2D(state_grid)
+    concat_grid = concat2D(state_grid)
     output = apply2D(sub_network, concat_grid)
 
     return tf.transpose(output, (2, 0, 1, 3))
@@ -660,9 +671,7 @@ def main():
 
     if PRINT_QS:
         g.reset()
-        g.board.set(0, 0, VERT, 1)
-        g.board.set(0, 0, HORZ, 1)
-        g.board.set(0, 1, VERT, 1)
+        g.board.set(1, 1, VERT, 1)
         p = g.players[0]
         state = p.to_state(g.board)
         print(state)

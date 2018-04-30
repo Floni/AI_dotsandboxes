@@ -15,6 +15,7 @@ import pickle
 from dotsandboxesgame import *
 from NN import *
 from MDRNN import *
+from ReplayMemory import ReplayMemory, PriorityReplayMemory
 
 
 MIN_INF = float('-inf')
@@ -33,9 +34,15 @@ BATCH_SIZE = 32
 
 REPLAY_BUFFER_SIZE = 10000
 
+PRIORITY_REPLAY_BUFFER = False
+PRIORITY_ALPHA = 0.6
+PRIORITY_BETA_INIT = 0.4
+PRIORITY_BETA_ITERS = 100000
+PRIORITY_EPS = 1e-6
+
 GRADIENT_CLIPPING_NORM = 10
 
-REGULARIZATION_FACTOR = 1e-4
+REGULARIZATION_FACTOR = 1e-5
 
 LEARNING_RATE = 5e-4
 
@@ -113,7 +120,12 @@ class DQNPlayer(Player):
 
         self.reg_param = REGULARIZATION_FACTOR
 
-        self.replay_mem = deque(maxlen=REPLAY_BUFFER_SIZE)
+        if PRIORITY_REPLAY_BUFFER:
+            self.replay_mem = PriorityReplayMemory(REPLAY_BUFFER_SIZE, PRIORITY_ALPHA)
+            self.beta = PRIORITY_BETA_INIT
+            self.beta_update = (1.0 - PRIORITY_BETA_INIT) / PRIORITY_BETA_ITERS
+        else:
+            self.replay_mem = ReplayMemory(REPLAY_BUFFER_SIZE)
 
         self.update = True
 
@@ -189,12 +201,6 @@ class DQNPlayer(Player):
                 output[row][col] = 0.5 * (input + left_masked + upper_masked + right_masked + lower_masked)
         return tf.transpose(output, (2, 0, 1, 3))
 
-    def get_batch(self):
-        return random.sample(self.replay_mem, k=self.batch_size)
-
-    def add_mem(self, state, action, next_state, reward, done, next_state_valid):  #state_valid, next_state_valid):
-        self.replay_mem.append((state, action, next_state, reward, done, next_state_valid))
-
     def create_graph(self):
         """
         Creates the computation graph of the neural network
@@ -212,6 +218,7 @@ class DQNPlayer(Player):
             #self.Valid_Action_Mask = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, 2], name="valid_in")
 
             self.action_scores = self.average_cell(self.q_outputs) #* self.Valid_Action_Mask
+            tf.summary.histogram("action_scores", self.action_scores)
 
         with tf.name_scope("calc_q_vals"):
             self.Next_States = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="next_states_in")
@@ -255,7 +262,16 @@ class DQNPlayer(Player):
             self.masked_action_scores = tf.reduce_sum(self.action_scores * self.Action_Mask, axis=(1, 2, 3))
 
             self.temp_diff = self.masked_action_scores - tf.stop_gradient(self.future_rewards)
-            self.td_loss = tf.reduce_mean(huber_loss(self.temp_diff))
+
+            if PRIORITY_REPLAY_BUFFER:
+                self.Error_Weights = tf.placeholder(tf.float32, [None], name="prio_weights")
+                errors = self.Error_Weights * huber_loss(self.temp_diff)
+                tf.summary.histogram("error_weights", self.Error_Weights)
+            else:
+                errors = huber_loss(self.temp_diff)
+
+            self.td_loss = tf.reduce_mean(errors)
+
             tf.summary.scalar('td_loss', self.td_loss)
 
             q_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
@@ -268,6 +284,11 @@ class DQNPlayer(Player):
 
             gradients, variables = zip(*self.optimizer.compute_gradients(self.loss))
             gradients, _ = tf.clip_by_global_norm(gradients, self.max_gradient)
+
+            for grad, var in zip(gradients, variables):
+                tf.summary.histogram(var.name, var)
+                if grad is not None:
+                    tf.summary.histogram(var.name + '-grad', grad)
 
             #for i, (grad, var) in enumerate(gradients):
             #    if grad is not None:
@@ -320,17 +341,14 @@ class DQNPlayer(Player):
             self.avg_losses = tf.placeholder(tf.float32, name='avg_losses')
             self.avg_ties = tf.placeholder(tf.float32, name='avg_ties')
 
+            self.epxl_var = tf.placeholder(tf.float32, name='exploration')
             #self.avg_reward_var = tf.get_variable("avg_reward_var", shape=())
             tf.summary.scalar('avg_Reward', self.avg_reward)
             tf.summary.scalar('avg_wins', self.avg_wins)
             tf.summary.scalar('avg_losses', self.avg_losses)
             tf.summary.scalar('avg_ties', self.avg_ties)
 
-            q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
-            target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_network")
-
-            reg_norm = tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in q_vars])
-            tf.summary.scalar('l2_norm_q_vars', reg_norm)
+            tf.summary.scalar('exploration', self.epxl_var)
 
             self.noop = tf.no_op()
 
@@ -343,11 +361,15 @@ class DQNPlayer(Player):
         if not done:
             next_state_valid = self.get_valid_mask(next_state)
 
-        self.add_mem(state, action, next_state, reward, done, next_state_valid) #, state_valid, next_state_valid)
-        if len(self.replay_mem) < self.batch_size:
+        self.replay_mem.add_mem(state, action, next_state, reward, done, next_state_valid) #, state_valid, next_state_valid)
+        if len(self.replay_mem.memory) < self.batch_size:
             return
 
-        batch = self.get_batch()
+        if PRIORITY_REPLAY_BUFFER:
+            batch, weights, idxs = self.replay_mem.get_batch(self.batch_size, self.beta)
+            self.beta = min(1.0, self.beta + self.beta_update)
+        else:
+            batch = self.replay_mem.get_batch(self.batch_size)
 
         batch_states = []
         #batch_valid_mask = []
@@ -397,11 +419,7 @@ class DQNPlayer(Player):
 
             self.last_avg_reward = avg_reward_cur
 
-        _summary, _loss, _train_step = self.session.run([
-            self.sum_merged if do_summary else self.noop,
-            self.loss,
-            self.train_op
-        ], feed_dict={
+        feed_dict = {
             self.States: batch_states,
             #self.Valid_Action_Mask: batch_valid_mask,
             self.Next_States: batch_next_states,
@@ -412,8 +430,25 @@ class DQNPlayer(Player):
             self.avg_reward: avg_reward_cur,
             self.avg_wins: avg_wins_cur,
             self.avg_losses: avg_losses_cur,
-            self.avg_ties: avg_ties_cur
-        })
+            self.avg_ties: avg_ties_cur,
+            self.epxl_var: self.exploration
+        }
+
+        if PRIORITY_REPLAY_BUFFER:
+            feed_dict[self.Error_Weights] = weights
+
+        _summary, _loss, _td_err, _train_step = self.session.run([
+            self.sum_merged if do_summary else self.noop,
+            self.loss,
+            self.temp_diff,
+            self.train_op
+        ], feed_dict=feed_dict)
+
+
+        if PRIORITY_REPLAY_BUFFER:
+            new_priorities = np.abs(_td_err) + PRIORITY_EPS
+            self.replay_mem.update_priorities(idxs, new_priorities)
+
 
         if do_summary:
             self.sum_writer.add_summary(_summary, global_step=self.global_step.eval(self.session))

@@ -42,16 +42,19 @@ PRIORITY_EPS = 1e-6
 
 GRADIENT_CLIPPING_NORM = 10
 
-REGULARIZATION_FACTOR = 1e-5
+REGULARIZATION_FACTOR = 0.0
 
 LEARNING_RATE = 5e-4
-
-SUMMARY_HISTOGRAMS = False
 
 DOUBLE_Q_LEARNING = True
 
 # run parameters:
-TRAIN = True
+SUMMARY_HISTOGRAMS = True
+
+TRAIN = False
+
+LEARN_FROM_PICKLE = False
+PICKLE_NAME = "q_value2x2.pickle"
 
 RAND_START = True
 START_FIRST = False
@@ -59,7 +62,7 @@ START_FIRST = False
 QPLAYER = False
 NN_PLAY = False
 SELF_PLAY = False
-GREEDY_PLAY = False
+GREEDY_PLAY = True
 
 PRINT_QS = False
 
@@ -318,20 +321,13 @@ class DQNPlayer(Player):
 
             self.target_update_op = tf.group(*target_update)
 
-        #with tf.name_scope("train_pickle"):
-        #    self.Correct_Qs = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, 2], name="CorrectQs")
-        #    # calc loss
-        #    self.Q_loss = tf.losses.mean_squared_error(self.Correct_Qs, self.action_scores)
-        #    # optimize loss
-        #    self.Q_train_op = tf.train.RMSPropOptimizer(learning_rate=0.01).minimize(self.Q_loss)
-        #    # update target network
-        #    self.target_set = []
-        #    q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
-        #    target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_network")
-        #    for v_q, v_target in zip(q_vars, target_vars):
-        #        update_op = v_target.assign(v_q)
-        #        self.target_set.append(update_op)
-        #    self.Q_target_set = tf.group(*self.target_set)
+        with tf.name_scope("train_pickle"):
+            self.Correct_Qs = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="CorrectQs")
+            self.State_Mask = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="state_mask")
+            # calc loss
+            self.Q_loss = tf.losses.mean_squared_error(self.Correct_Qs, self.action_scores * self.State_Mask)
+            # optimize loss
+            self.Q_train_op = tf.train.RMSPropOptimizer(learning_rate=0.01).minimize(self.Q_loss)
 
         with tf.name_scope("save_model"):
             q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
@@ -470,7 +466,6 @@ class DQNPlayer(Player):
         elif done and reward == REWARD_LOSE:
             self.tot_losses += 1
         elif done and reward == REWARD_TIE:
-            print("tie!!!")
             self.tot_ties += 1
 
         if done:
@@ -538,59 +533,85 @@ class DQNPlayer(Player):
             next_state = self.to_state(next_board)
         self.updateQ(state, action, next_state, reward, done)
 
+    def get_state_mask(self, state):
+        poss = np.zeros((self.state_rows, self.state_cols, self.state_depth))
+        for row in range(self.state_rows):
+            for col in range(self.state_cols):
+                poss[row][col][0] = 1 if state[row][col][0] == 0 else 0
+        return poss
 
-    # def tuple_to_state(self, tpl):
-    #     ret = np.zeros((self.state_rows, self.state_cols, 2))
-    #     for r in range(self.state_rows):
-    #         for c in range(self.state_cols):
-    #             for o in [0, 1]: # TODO: -1 for illegal positions
-    #                 if tpl[r][c][o]:
-    #                     ret[r][c][o] = 1.0
-    #     return ret
+    def tuple_to_state(self, tpl):
+        nb_rows = self.board_rows
+        nb_cols = self.board_cols
+        zero_col = nb_rows-1
+        matrix = -np.ones((self.state_rows, self.state_cols))
 
-    # def map_to_output(self, Qmap):
-    #     ret = np.zeros((self.state_rows, self.state_cols, 2))
-    #     for r in range(self.state_rows):
-    #         for c in range(self.state_cols):
-    #             for o in [0, 1]:
-    #                 if (r, c, o) in Qmap:
-    #                     ret[r][c][o] = Qmap[(r, c, o)]
-    #     return ret
+        for row in range(nb_rows+1):
+            for col in range(nb_cols+1):
+                for orient in [VERT, HORZ]:
+                    if (row == nb_rows and orient != HORZ) or \
+                        (col == nb_cols and orient != VERT):
+                        continue
+                    new_row = row + col
+                    new_col = zero_col + (col - row) + orient
+                    matrix[new_row][new_col] = 1 if tpl[row][col][orient] else 0
+        return matrix.reshape((self.state_rows, self.state_cols, 1))
 
-    # def learn_from_pickle(self, pickle_name, n_iters):
-    #     Qs = None
-    #     with open(pickle_name, "rb") as f:
-    #         Qs = pickle.load(f)
+    def map_to_output(self, Qmap):
+        nb_rows = self.board_rows
+        nb_cols = self.board_cols
+        zero_col = nb_rows-1
+        matrix = np.zeros((self.state_rows, self.state_cols))
 
-    #     states = list(Qs.keys())
+        for row in range(nb_rows+1):
+            for col in range(nb_cols+1):
+                for orient in [VERT, HORZ]:
+                    if (row == nb_rows and orient != HORZ) or \
+                        (col == nb_cols and orient != VERT):
+                        continue
+                    val = 0
+                    if (row, col, orient) in Qmap:
+                        val = Qmap[(row, col, orient)]
+                    new_row = row + col
+                    new_col = zero_col + (col - row) + orient
+                    matrix[new_row][new_col] = val
 
-    #     tot_loss = 0
+        return matrix.reshape((self.state_rows, self.state_cols, 1))
 
-    #     for idx in range(n_iters):
-    #         # generate batch
-    #         batch = random.sample(states, self.batch_size)
-    #         batch_states = [self.tuple_to_state(x) for x in batch]
-    #         batch_valid_mask = [self.get_valid_mask(x) for x in batch_states]
-    #         batch_labels = [self.map_to_output(Qs[x]) for x in batch]
-    #         # train on batch
-    #         loss, _ = self.session.run([self.Q_loss, self.Q_train_op], feed_dict={
-    #             self.States: batch_states,
-    #             self.Valid_Action_Mask: batch_valid_mask,
-    #             self.Correct_Qs: batch_labels
-    #         })
-    #         tot_loss += loss
+    def learn_from_pickle(self, pickle_name, n_iters):
+        Qs = None
+        with open(pickle_name, "rb") as f:
+            Qs = pickle.load(f)
 
-    #         if idx % 1000 == 0:
-    #             print()
-    #             print("step:", idx, "avg. loss:", tot_loss / 1000)
-    #             tot_loss = 0
-    #         printProgressBar(idx, n_iters, suffix=" to 1000")
+        states = list(Qs.keys())
 
-    #     # update target network
-    #     self.session.run(self.Q_target_set)
+        tot_loss = 0
 
-    #     print("targetQ:")
-    #     print(self.map_to_output(Qs[states[0]]))
+        for idx in range(n_iters):
+            # generate batch
+            batch = random.sample(states, self.batch_size)
+            batch_states = [self.tuple_to_state(x) for x in batch]
+            batch_valid_mask = [self.get_state_mask(x) for x in batch_states]
+            batch_labels = [self.map_to_output(Qs[x]) for x in batch]
+            # train on batch
+            loss, _ = self.session.run([self.Q_loss, self.Q_train_op], feed_dict={
+                self.States: batch_states,
+                self.State_Mask: batch_valid_mask,
+                self.Correct_Qs: batch_labels
+            })
+            tot_loss += loss
+
+            if idx % 1000 == 0:
+                print()
+                print("step:", idx, "avg. loss:", tot_loss / 1000)
+                tot_loss = 0
+            printProgressBar(idx, n_iters, suffix=" to 1000")
+
+        # update target network
+        self.session.run(self.target_set_op)
+
+        print("targetQ:")
+        print(self.map_to_output(Qs[states[0]]))
 
     def summary(self):
         t = time.time()
@@ -658,7 +679,8 @@ def create_rnn_network(state, board_rows, board_cols):
 
     sub_network = create_fully_connected("output", state_size, [
         (tf.nn.relu, 128),
-        (tf.nn.relu, 32),
+        (tf.nn.relu, 265),
+        (tf.nn.relu, 64),
         (None, 1)
     ])
 
@@ -670,21 +692,17 @@ def create_rnn_network(state, board_rows, board_cols):
 dqn_player = DQNPlayer_creator(create_rnn_network, "rnn")#DQNPlayer_creator(create_network, "fcc")##DQNPlayer_creator(create_network, "fcc")##create_network)
 
 
-
-LEARN_FROM_PICKLE = False
-PICKLE_NAME = "q_value2x2.pickle"
-
-# def learn_pickle():
-#     print("training from pickle")
-#     p = dqn_player(BOARD_SIZE)
-#     p.learn_from_pickle(PICKLE_NAME, 50000)
-#     p.save()
-#     print("done")
+def learn_pickle():
+    print("training from pickle")
+    p = dqn_player(BOARD_SIZE)
+    p.learn_from_pickle(PICKLE_NAME, 1000)
+    p.save()
+    print("done")
 
 def main():
-    # if LEARN_FROM_PICKLE:
-    #     learn_pickle()
-    #     return
+    if LEARN_FROM_PICKLE:
+        learn_pickle()
+        return
 
     player2 = Player
     if QPLAYER:

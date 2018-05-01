@@ -46,6 +46,8 @@ REGULARIZATION_FACTOR = 1e-5
 
 LEARNING_RATE = 5e-4
 
+SUMMARY_HISTOGRAMS = False
+
 DOUBLE_Q_LEARNING = True
 
 # run parameters:
@@ -57,7 +59,7 @@ START_FIRST = False
 QPLAYER = False
 NN_PLAY = False
 SELF_PLAY = False
-GREEDY_PLAY = True
+GREEDY_PLAY = False
 
 PRINT_QS = False
 
@@ -75,20 +77,20 @@ def huber_loss(x, delta=1.0):
         delta * (tf.abs(x) - 0.5 * delta)
     )
 
-LEFT  = 0
-UPPER = 1
-RIGHT = 2
-LOWER = 3
+# LEFT  = 0
+# UPPER = 1
+# RIGHT = 2
+# LOWER = 3
 
-LEFT_EDGE_MASK =  [1, 0, 0, 0]
-UPPER_EDGE_MASK = [0, 1, 0, 0]
-RIGHT_EDGE_MASK = [0, 0, 1, 0]
-LOWER_EDGE_MASK = [0, 0, 0, 1]
+# LEFT_EDGE_MASK =  [1, 0, 0, 0]
+# UPPER_EDGE_MASK = [0, 1, 0, 0]
+# RIGHT_EDGE_MASK = [0, 0, 1, 0]
+# LOWER_EDGE_MASK = [0, 0, 0, 1]
 
-LEFT_NEIGHBOUR_MASK  = np.array([[0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
-UPPER_NEIGHBOUR_MASK = np.array([[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0]])
-RIGHT_NEIGHBOUR_MASK = np.array([[0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0], [0, 0, 0, 0]])
-LOWER_NEIGHBOUR_MASK = np.array([[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 1, 0, 0]])
+# LEFT_NEIGHBOUR_MASK  = np.array([[0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
+# UPPER_NEIGHBOUR_MASK = np.array([[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0]])
+# RIGHT_NEIGHBOUR_MASK = np.array([[0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0], [0, 0, 0, 0]])
+# LOWER_NEIGHBOUR_MASK = np.array([[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 1, 0, 0]])
 
 class DQNPlayer(Player):
     """
@@ -103,9 +105,9 @@ class DQNPlayer(Player):
 
             # TODO: needed?
         # the size of the state
-        self.state_rows = grid[0]
-        self.state_cols = grid[1]
-        self.state_depth = 4
+        self.state_rows = grid[0]+grid[1]
+        self.state_cols = self.state_rows
+        self.state_depth = 1
 
         self.exploration = INITIAL_EXPLORATION
         self.final_exploration = FINAL_EXPLORATION
@@ -137,15 +139,15 @@ class DQNPlayer(Player):
         self.graph = tf.Graph()
         self.session = tf.Session(graph=self.graph)
         with self.graph.as_default():
-            self.LEFT_EDGE_MASK  = tf.constant(LEFT_EDGE_MASK,  tf.float32)
-            self.UPPER_EDGE_MASK = tf.constant(UPPER_EDGE_MASK, tf.float32)
-            self.RIGHT_EDGE_MASK = tf.constant(RIGHT_EDGE_MASK, tf.float32)
-            self.LOWER_EDGE_MASK = tf.constant(LOWER_EDGE_MASK, tf.float32)
+            # self.LEFT_EDGE_MASK  = tf.constant(LEFT_EDGE_MASK,  tf.float32)
+            # self.UPPER_EDGE_MASK = tf.constant(UPPER_EDGE_MASK, tf.float32)
+            # self.RIGHT_EDGE_MASK = tf.constant(RIGHT_EDGE_MASK, tf.float32)
+            # self.LOWER_EDGE_MASK = tf.constant(LOWER_EDGE_MASK, tf.float32)
 
-            self.LEFT_NEIGHBOUR_MASK  = tf.constant(LEFT_NEIGHBOUR_MASK,  tf.float32)
-            self.UPPER_NEIGHBOUR_MASK = tf.constant(UPPER_NEIGHBOUR_MASK, tf.float32)
-            self.RIGHT_NEIGHBOUR_MASK = tf.constant(RIGHT_NEIGHBOUR_MASK, tf.float32)
-            self.LOWER_NEIGHBOUR_MASK = tf.constant(LOWER_NEIGHBOUR_MASK, tf.float32)
+            # self.LEFT_NEIGHBOUR_MASK  = tf.constant(LEFT_NEIGHBOUR_MASK,  tf.float32)
+            # self.UPPER_NEIGHBOUR_MASK = tf.constant(UPPER_NEIGHBOUR_MASK, tf.float32)
+            # self.RIGHT_NEIGHBOUR_MASK = tf.constant(RIGHT_NEIGHBOUR_MASK, tf.float32)
+            # self.LOWER_NEIGHBOUR_MASK = tf.constant(LOWER_NEIGHBOUR_MASK, tf.float32)
 
             self.create_graph()
             self.session.run(tf.global_variables_initializer())
@@ -163,43 +165,43 @@ class DQNPlayer(Player):
 
         self.last_avg_reward = 0
 
-    def average_cell(self, state):
-        output = [[None] * self.state_cols for _ in range(self.state_rows)]
-        inpt_array = [tf.unstack(X, self.state_cols, 1) for X in tf.unstack(state, self.state_rows, 1)]
-        for row in range(self.state_rows):
-            for col in range(self.state_cols):
-                input = inpt_array[row][col]
-                # neighbours:
-                if row > 0:
-                    upper = inpt_array[row-1][col]
-                    upper_masked = tf.transpose(tf.matmul(self.UPPER_NEIGHBOUR_MASK, upper, transpose_b=True))
-                else:
-                    upper = input
-                    upper_masked = self.UPPER_EDGE_MASK * upper
+    # def average_cell(self, state):
+    #     output = [[None] * self.state_cols for _ in range(self.state_rows)]
+    #     inpt_array = [tf.unstack(X, self.state_cols, 1) for X in tf.unstack(state, self.state_rows, 1)]
+    #     for row in range(self.state_rows):
+    #         for col in range(self.state_cols):
+    #             input = inpt_array[row][col]
+    #             # neighbours:
+    #             if row > 0:
+    #                 upper = inpt_array[row-1][col]
+    #                 upper_masked = tf.transpose(tf.matmul(self.UPPER_NEIGHBOUR_MASK, upper, transpose_b=True))
+    #             else:
+    #                 upper = input
+    #                 upper_masked = self.UPPER_EDGE_MASK * upper
 
-                if row < self.state_rows-1:
-                    lower = inpt_array[row+1][col]
-                    lower_masked = tf.transpose(tf.matmul(self.LOWER_NEIGHBOUR_MASK, lower, transpose_b=True))
-                else:
-                    lower = input
-                    lower_masked = self.LOWER_EDGE_MASK * lower
+    #             if row < self.state_rows-1:
+    #                 lower = inpt_array[row+1][col]
+    #                 lower_masked = tf.transpose(tf.matmul(self.LOWER_NEIGHBOUR_MASK, lower, transpose_b=True))
+    #             else:
+    #                 lower = input
+    #                 lower_masked = self.LOWER_EDGE_MASK * lower
 
-                if col > 0:
-                    left  = inpt_array[row][col-1]
-                    left_masked = tf.transpose(tf.matmul(self.LEFT_NEIGHBOUR_MASK, left, transpose_b=True))
-                else:
-                    left = input
-                    left_masked = self.LEFT_EDGE_MASK * left
+    #             if col > 0:
+    #                 left  = inpt_array[row][col-1]
+    #                 left_masked = tf.transpose(tf.matmul(self.LEFT_NEIGHBOUR_MASK, left, transpose_b=True))
+    #             else:
+    #                 left = input
+    #                 left_masked = self.LEFT_EDGE_MASK * left
 
-                if col < self.state_cols-1:
-                    right = inpt_array[row][col+1]
-                    right_masked = tf.transpose(tf.matmul(self.RIGHT_NEIGHBOUR_MASK, right, transpose_b=True))
-                else:
-                    right = input
-                    right_masked = self.RIGHT_EDGE_MASK * right
+    #             if col < self.state_cols-1:
+    #                 right = inpt_array[row][col+1]
+    #                 right_masked = tf.transpose(tf.matmul(self.RIGHT_NEIGHBOUR_MASK, right, transpose_b=True))
+    #             else:
+    #                 right = input
+    #                 right_masked = self.RIGHT_EDGE_MASK * right
 
-                output[row][col] = 0.5 * (input + left_masked + upper_masked + right_masked + lower_masked)
-        return tf.transpose(output, (2, 0, 1, 3))
+    #             output[row][col] = 0.5 * (input + left_masked + upper_masked + right_masked + lower_masked)
+    #     return tf.transpose(output, (2, 0, 1, 3))
 
     def create_graph(self):
         """
@@ -212,12 +214,12 @@ class DQNPlayer(Player):
             self.States = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="states_in")
 
             with tf.variable_scope("q_network"):
-                self.q_outputs = self.predictor_func(self.States)
+                self.q_outputs = self.predictor_func(self.States, self.board_rows, self.board_cols)
 
             # no need for valid action mask as if the chosen actions are valid non valid actions are never trained.
             #self.Valid_Action_Mask = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, 2], name="valid_in")
 
-            self.action_scores = self.average_cell(self.q_outputs) #* self.Valid_Action_Mask
+            self.action_scores = self.q_outputs #* self.Valid_Action_Mask
             tf.summary.histogram("action_scores", self.action_scores)
 
         with tf.name_scope("calc_q_vals"):
@@ -230,24 +232,24 @@ class DQNPlayer(Player):
 
             if DOUBLE_Q_LEARNING:
                 with tf.variable_scope("q_network", reuse=True):
-                    q_next_out = self.predictor_func(self.Next_States)
-                q_next_scores = self.average_cell(q_next_out) + self.Valid_Next_Action_Mask#* self.Valid_Next_Action_Mask + test_mask
+                    q_next_out = self.predictor_func(self.Next_States, self.board_rows, self.board_cols)
+                q_next_scores = q_next_out + self.Valid_Next_Action_Mask#* self.Valid_Next_Action_Mask + test_mask
 
                 action_size = self.state_rows*self.state_cols*self.state_depth
                 action_selection = tf.argmax(tf.reshape(q_next_scores, [-1, action_size]), axis=1)
                 action_selection_mask = tf.reshape(tf.one_hot(action_selection, action_size), [-1, self.state_rows, self.state_cols, self.state_depth])
 
                 with tf.variable_scope("target_network"):
-                    target_out = self.predictor_func(self.Next_States)
-                action_evaluation = tf.reduce_sum(self.average_cell(target_out) * action_selection_mask, axis=(1, 2, 3))
+                    target_out = self.predictor_func(self.Next_States, self.board_rows, self.board_cols)
+                action_evaluation = tf.reduce_sum(target_out * action_selection_mask, axis=(1, 2, 3))
                 self.target_values = action_evaluation * self.Next_State_Mask
             else:
                 # target network (see paper):
                 with tf.variable_scope("target_network"):
-                    self.target_outputs = self.predictor_func(self.Next_States)
+                    self.target_outputs = self.predictor_func(self.Next_States, self.board_rows, self.board_cols)
 
                 # don't update target network while learning:
-                self.next_action_scores = self.average_cell(self.target_outputs) + self.Valid_Next_Action_Mask# * self.Valid_Next_Action_Mask # + test_mask
+                self.next_action_scores = self.target_outputs + self.Valid_Next_Action_Mask# * self.Valid_Next_Action_Mask # + test_mask
 
                 self.target_values = tf.reduce_max(self.next_action_scores, axis=(1, 2, 3)) * self.Next_State_Mask
 
@@ -285,10 +287,11 @@ class DQNPlayer(Player):
             gradients, variables = zip(*self.optimizer.compute_gradients(self.loss))
             gradients, _ = tf.clip_by_global_norm(gradients, self.max_gradient)
 
-            for grad, var in zip(gradients, variables):
-                tf.summary.histogram(var.name, var)
-                if grad is not None:
-                    tf.summary.histogram(var.name + '-grad', grad)
+            if SUMMARY_HISTOGRAMS:
+                for grad, var in zip(gradients, variables):
+                    tf.summary.histogram(var.name, var)
+                    if grad is not None:
+                        tf.summary.histogram(var.name + '-grad', grad)
 
             #for i, (grad, var) in enumerate(gradients):
             #    if grad is not None:
@@ -385,10 +388,8 @@ class DQNPlayer(Player):
             #batch_valid_mask.append(state_valid)
             batch_rewards.append(b_reward)
 
-            co, oco = self.to_state_coords(*action)
+            co = self.to_state_coords(*action)
             batch_action_mask[idx][co[0]][co[1]][co[2]] = 1
-            if oco is not None:
-                batch_action_mask[idx][oco[0]][oco[1]][oco[2]] = 1
 
             if not b_done:
                 batch_next_state_mask[idx] = 1
@@ -479,31 +480,25 @@ class DQNPlayer(Player):
 
 
     def to_state(self, board):
-        ret = np.zeros((self.state_rows, self.state_cols, self.state_depth))
+        zero_col = board.nb_rows - 1
+        matrix = -np.ones((self.state_rows, self.state_cols))
+
         for row in range(board.nb_rows+1):
             for col in range(board.nb_cols+1):
-                h = 1 if board.get(row, col, HORZ) != 0 else 0
-                v = 1 if board.get(row, col, VERT) != 0 else 0
-
-                if row < self.state_rows and col < self.state_cols:
-                    ret[row][col][UPPER] = h
-                    ret[row][col][LEFT] = v
-
-                if row > 0 and col < self.state_cols:
-                    ret[row-1][col][LOWER] = h
-                if col > 0 and row < self.state_rows:
-                    ret[row][col-1][RIGHT] = v
-        return ret
+                for orient in [VERT, HORZ]:
+                    if (row == board.nb_rows and orient != HORZ) or \
+                        (col == board.nb_cols and orient != VERT):
+                        continue
+                    new_row = row + col
+                    new_col = zero_col + (col - row) + orient
+                    matrix[new_row][new_col] = 0 if board.get(row, col, orient) == 0 else 1
+        return matrix.reshape((self.state_rows, self.state_cols, 1))
 
     def get_valid_mask(self, state):
         poss = np.zeros((self.state_rows, self.state_cols, self.state_depth))
         for row in range(self.state_rows):
             for col in range(self.state_cols):
-                for edge in range(self.state_depth):
-                    if state[row][col][edge] == 0:
-                        poss[row][col][edge] = 0
-                    else:
-                        poss[row][col][edge] = MIN_INF
+                poss[row][col][0] = 0 if state[row][col][0] == 0 else MIN_INF
         return poss
 
 
@@ -515,21 +510,10 @@ class DQNPlayer(Player):
 
 
     def to_state_coords(self, row, col, orient):
-        if row < self.state_rows and col < self.state_cols:
-            oo = 1 - orient
-            other = None if row == 0 or col == 0 else (row - orient, col - oo, 2 + orient)
-
-            return (row, col, orient), other
-
-        if row >= self.state_rows and col < self.state_cols:
-            row -= 1
-        elif col >= self.state_cols and row < self.state_rows:
-            col -= 1
-        else:
-            raise Exception("Illegal move: " + str(row) + " " + str(col))
-
-        return (row, col, 2 + orient), None
-
+        zero_col = self.board_rows - 1
+        new_row = row + col
+        new_col = zero_col + (col - row) + orient
+        return new_row, new_col, 0
 
     def play(self, board, player=None, train=False):
         state = self.to_state(board)
@@ -541,7 +525,7 @@ class DQNPlayer(Player):
             actions = self.get_possible_moves(board)
 
             def map_func(act):
-                c, _ = self.to_state_coords(*act)
+                c = self.to_state_coords(*act)
                 return Q_values[c[0]][c[1]][c[2]]
             return max(actions, key=map_func)
 
@@ -646,7 +630,7 @@ layers = [
     (tf.nn.relu, 32)
 ]
 
-def create_network(state):
+def create_network(state, board_rows, board_cols):
     nb_rows = state.shape[1]
     nb_cols = state.shape[2]
 
@@ -661,29 +645,24 @@ def create_network(state):
     output_shaped = tf.reshape(output, (-1, nb_rows, nb_cols, 4))
     return output_shaped
 
-init_state_test = None
-
-def create_rnn_network(state):
-    global init_state_test
-
+def create_rnn_network(state, board_rows, board_cols):
     state_size = 64
 
     batch_size = tf.shape(state)[0]
 
     init_state_var = tf.get_variable("InitState", [1, state_size], initializer=tf.zeros_initializer)
     init_state = tf.tile(init_state_var, [batch_size, 1])#tf.zeros([batch_size, state_size])
-    init_state_test = init_state_var
 
-    cells = [Dense("cell", 2 * state_size + 4, state_size, activation=tf.tanh)] * 4
-    state_grid = unroll2DRNN(cells, state, init_state)
+    cells = [Dense("cell", state_size + 1, state_size, activation=tf.tanh)] * 4
+    state_grid = unroll2DRNN(cells, state, init_state, BOARD_SIZE[0], BOARD_SIZE[1])
 
-    sub_network = create_fully_connected("output", 4 * state_size, [
+    sub_network = create_fully_connected("output", state_size, [
         (tf.nn.relu, 128),
         (tf.nn.relu, 32),
-        (None, 4)
+        (None, 1)
     ])
 
-    concat_grid = concat2D(state_grid)
+    concat_grid = sum2D(state_grid)
     output = apply2D(sub_network, concat_grid)
 
     return tf.transpose(output, (2, 0, 1, 3))
@@ -749,19 +728,13 @@ def main():
 
     if PRINT_QS:
         g.reset()
-        g.board.set(1, 1, VERT, 1)
+
         p = g.players[0]
         state = p.to_state(g.board)
         print(state)
         print("Qs:")
-        print(p.getQs(state))
-        print("without average:")
-        a, b = p.session.run([ init_state_test, p.q_outputs], feed_dict={
-            p.States: state.reshape((1, p.state_rows, p.state_cols, p.state_depth)),
-        })
-        print(b)
-        print("init state:")
-        print(a)
+        qs = p.getQs(state).reshape((p.state_rows, p.state_cols, 1)) + p.get_valid_mask(state)
+        print(qs.reshape((p.state_rows, p.state_cols)))
 
     print("done")
 

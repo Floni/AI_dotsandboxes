@@ -1,36 +1,43 @@
 import numpy as np
 import tensorflow as tf
 
-def unroll_direction(cell, input_grid, start_state, width, height, direction):
+def in_board(width, height, row, col):
+    return (row + col >= height-1) and (row + col < 2*width + height) \
+            and (col - row <= height) and (row - col <= height)
+
+def unroll_direction(cell, input_grid, start_state, width, height, board_rows, board_cols, direction):
     state_grid = [[None] * height for _ in range(width)]
-    dir_x = direction[0]
-    dir_y = direction[1]
-    for cur_x in range(width)[::dir_x]:
-        for cur_y in range(height)[::dir_y]:
-            current_input = input_grid[cur_x][cur_y]
+    dir_row = direction[0]
+    dir_col = direction[1]
+    for row in range(height)[::dir_row]:
+        for col in range(width)[::dir_col]:
+            current_input = input_grid[row][col]
             #current_input = tf.reshape(current_input, [-1, input_size])
             #print(current_input.shape)
-            nx = cur_x - dir_x
-            ny = cur_y - dir_y
-            current_state_x = state_grid[cur_x-dir_x][cur_y] if 0 <= nx < width else start_state
-            current_state_y = state_grid[cur_x][cur_y-dir_y] if 0 <= ny < height else start_state
-            input_and_state = tf.concat([current_input, current_state_x, current_state_y], axis = 1)
+            nrow = row - dir_row
+            ncol = col - dir_col
+            current_state_row = state_grid[nrow][col] if in_board(board_cols, board_rows, nrow, col) else start_state
+            current_state_col = state_grid[row][ncol] if in_board(board_cols, board_rows, row, ncol) else start_state
+            current_state = current_state_col + current_state_row
+            input_and_state = tf.concat([current_input, current_state], axis = 1)
             #print(input_and_state.shape)
             out_state = cell(input_and_state)
 
-            state_grid[cur_x][cur_y] = out_state
+            state_grid[row][col] = out_state
     return state_grid
 
-def unroll2DRNN(cells, inputs, input_state):
-    width = inputs.shape[1]
-    height = inputs.shape[2]
+def unroll2DRNN(cells, inputs, input_state, board_rows, board_cols):
+    height = inputs.shape[1]
+    width = inputs.shape[2]
+
     # first split along x direction to give list [x = 0, x = 1, x = 2, ..]
     # then unstack each x along y irection to give [x = 0 [y = 0, y = 1], x = 1 [...], ...]
     input_series = [tf.unstack(X, height, 1) for X in tf.unstack(inputs, width, 1)]
-    grid1 = unroll_direction(cells[0], input_series, input_state, width, height, (1, 1))
-    grid2 = unroll_direction(cells[1], input_series, input_state, width, height, (-1, 1))
-    grid3 = unroll_direction(cells[2], input_series, input_state, width, height, (1, -1))
-    grid4 = unroll_direction(cells[3], input_series, input_state, width, height, (-1, -1))
+    
+    grid1 = unroll_direction(cells[0], input_series, input_state, width, height, board_rows, board_cols, (1, 1))
+    grid2 = unroll_direction(cells[1], input_series, input_state, width, height, board_rows, board_cols, (-1, 1))
+    grid3 = unroll_direction(cells[2], input_series, input_state, width, height, board_rows, board_cols, (1, -1))
+    grid4 = unroll_direction(cells[3], input_series, input_state, width, height, board_rows, board_cols, (-1, -1))
     return [[[grid1[x][y], grid2[x][y], grid3[x][y], grid4[x][y]] for y in range(height)] for x in range(width)]
 
 def concat2D(input_grid):

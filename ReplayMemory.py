@@ -33,7 +33,6 @@ class PriorityReplayMemory(ReplayMemory):
             tree_cap *= 2
 
         self.sum_tree = SumSegmentTree(tree_cap)
-        self.min_tree = MinSegmentTree(tree_cap)
         self.max_priority = 1.0
 
     def add_mem(self, *args, **kwargs):
@@ -41,7 +40,6 @@ class PriorityReplayMemory(ReplayMemory):
         super().add_mem(*args, **kwargs)
         prio = self.max_priority ** self.alpha
         self.sum_tree[idx] = prio
-        self.min_tree[idx] = prio
 
     def _sample_idxs(self, size):
         idxs = []
@@ -58,7 +56,6 @@ class PriorityReplayMemory(ReplayMemory):
         # create weights:
         weights = []
         tot_sum = self.sum_tree.sum()
-        tot_min = self.min_tree.min()
 
         #p_min = tot_min / tot_sum
         #max_w = (p_min * len(self.memory)) ** (-beta)
@@ -81,6 +78,5 @@ class PriorityReplayMemory(ReplayMemory):
             assert prio > 0
             prio_a = prio ** self.alpha
             self.sum_tree[idx] = prio_a
-            self.min_tree[idx] = prio_a
 
             self.max_priority = max(self.max_priority, prio)

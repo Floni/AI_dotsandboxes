@@ -22,10 +22,10 @@ MIN_INF = float('-inf')
 
 # HYPER PARAMETERS:
 INITIAL_EXPLORATION = 0.1
-FINAL_EXPLORATION = 0.001
+FINAL_EXPLORATION = 0.01
 EXPLORATION_STEPS = 50000
 
-DISCOUNT_GAMMA = 0.9
+DISCOUNT_GAMMA = 0.7
 ALPHA = 1.0 # NOT USED CURRENTLY
 
 UPDATE_TARGET_INTERVAL = 1000
@@ -34,7 +34,7 @@ BATCH_SIZE = 32
 
 REPLAY_BUFFER_SIZE = 10000
 
-PRIORITY_REPLAY_BUFFER = False
+PRIORITY_REPLAY_BUFFER = True
 PRIORITY_ALPHA = 0.6
 PRIORITY_BETA_INIT = 0.4
 PRIORITY_BETA_ITERS = 100000
@@ -51,7 +51,7 @@ DOUBLE_Q_LEARNING = True
 # run parameters:
 SUMMARY_HISTOGRAMS = True
 
-TRAIN = False
+TRAIN = True
 
 LEARN_FROM_PICKLE = False
 PICKLE_NAME = "q_value2x2.pickle"
@@ -679,7 +679,7 @@ def create_rnn_network(state, board_rows, board_cols):
 
     sub_network = create_fully_connected("output", state_size, [
         (tf.nn.relu, 128),
-        (tf.nn.relu, 265),
+        (tf.nn.relu, 64),
         (tf.nn.relu, 64),
         (None, 1)
     ])

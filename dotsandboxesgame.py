@@ -603,7 +603,7 @@ RAND_START = True
 START_FIRST = False
 
 if __name__ == '__main__':
-    g = Game((2, 2), QPlayer, GreedyPlayer)
+    g = Game((5, 5), Player, GreedyPlayer)
     g.rand_start = RAND_START
     if not START_FIRST:
         g.start_player = 1

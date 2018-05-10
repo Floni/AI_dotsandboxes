@@ -34,7 +34,7 @@ BATCH_SIZE = 32
 
 REPLAY_BUFFER_SIZE = 10000
 
-PRIORITY_REPLAY_BUFFER = True
+PRIORITY_REPLAY_BUFFER = False
 PRIORITY_ALPHA = 0.6
 PRIORITY_BETA_INIT = 0.4
 PRIORITY_BETA_ITERS = 100000
@@ -46,12 +46,12 @@ REGULARIZATION_FACTOR = 0.0
 
 LEARNING_RATE = 5e-4
 
-DOUBLE_Q_LEARNING = True
+DOUBLE_Q_LEARNING = False
 
 # run parameters:
 SUMMARY_HISTOGRAMS = True
 
-TRAIN = False
+TRAIN = True
 
 LEARN_FROM_PICKLE = False
 PICKLE_NAME = "q_value2x2.pickle"
@@ -66,9 +66,9 @@ GREEDY_PLAY = True
 
 PRINT_QS = False
 
-BOARD_SIZE = (3, 5)
+BOARD_SIZE = (3, 3)
 
-TRAIN_GAMES = 100000
+TRAIN_GAMES = 30000
 EVAL_GAMES = 500
 
 # from: https://github.com/openai/baselines/blob/master/baselines/common/tf_util.py
@@ -675,7 +675,10 @@ def create_network(state, board_rows, board_cols):
 
 def basic_rnn_cell(size, input_size):
     cell = Dense("cell", size + input_size, size, activation=tf.tanh)
-    return lambda inp, state: cell(tf.concat([inp, state], axis=1))
+    def cell_fn(inp, state):
+        a = cell(tf.concat([inp, state], axis=1))
+        return a, a
+    return cell_fn
 
 def create_rnn_network(state, board_rows, board_cols):
     state_size = 64
@@ -685,7 +688,7 @@ def create_rnn_network(state, board_rows, board_cols):
     init_state_var = tf.get_variable("InitState", [1, state_size], initializer=tf.zeros_initializer)
     init_state = tf.tile(init_state_var, [batch_size, 1])#tf.zeros([batch_size, state_size])
 
-    cells = [tf.nn.rnn_cell.GRUCell(state_size)] * 4 #[Dense("cell", state_size + 1, state_size, activation=tf.tanh)] * 4
+    cells = [basic_rnn_cell(state_size, 1)] * 4#[tf.nn.rnn_cell.GRUCell(state_size)] * 4 #[Dense("cell", state_size + 1, state_size, activation=tf.tanh)] * 4
     state_grid = unroll2DRNN(cells, state, init_state, BOARD_SIZE[0], BOARD_SIZE[1])
 
     sub_network = create_fully_connected("output", state_size, [

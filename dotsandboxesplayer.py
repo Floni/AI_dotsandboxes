@@ -51,7 +51,7 @@ DOUBLE_Q_LEARNING = True
 # run parameters:
 SUMMARY_HISTOGRAMS = True
 
-TRAIN = True
+TRAIN = False
 
 LEARN_FROM_PICKLE = False
 PICKLE_NAME = "q_value2x2.pickle"
@@ -66,7 +66,7 @@ GREEDY_PLAY = True
 
 PRINT_QS = False
 
-BOARD_SIZE = (3, 3)
+BOARD_SIZE = (3, 5)
 
 TRAIN_GAMES = 100000
 EVAL_GAMES = 500
@@ -165,6 +165,8 @@ class DQNPlayer(Player):
         self.tot_wins = 0
         self.tot_losses = 0
         self.tot_ties = 0
+
+        self.last_eval_wins = 0
 
         self.last_avg_reward = 0
 
@@ -327,7 +329,7 @@ class DQNPlayer(Player):
             # calc loss
             self.Q_loss = tf.losses.mean_squared_error(self.Correct_Qs, self.action_scores * self.State_Mask)
             # optimize loss
-            self.Q_train_op = tf.train.RMSPropOptimizer(learning_rate=0.01).minimize(self.Q_loss)
+            self.Q_train_op = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE).minimize(self.Q_loss)
 
         with tf.name_scope("save_model"):
             q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
@@ -342,12 +344,16 @@ class DQNPlayer(Player):
 
             self.epxl_var = tf.placeholder(tf.float32, name='exploration')
             #self.avg_reward_var = tf.get_variable("avg_reward_var", shape=())
+            self.eval_wins = tf.placeholder(tf.float32, name='evaluation_wins')
+
             tf.summary.scalar('avg_Reward', self.avg_reward)
             tf.summary.scalar('avg_wins', self.avg_wins)
             tf.summary.scalar('avg_losses', self.avg_losses)
             tf.summary.scalar('avg_ties', self.avg_ties)
 
             tf.summary.scalar('exploration', self.epxl_var)
+
+            tf.summary.scalar('eval_wins', self.eval_wins)
 
             self.noop = tf.no_op()
 
@@ -428,7 +434,8 @@ class DQNPlayer(Player):
             self.avg_wins: avg_wins_cur,
             self.avg_losses: avg_losses_cur,
             self.avg_ties: avg_ties_cur,
-            self.epxl_var: self.exploration
+            self.epxl_var: self.exploration,
+            self.eval_wins: self.last_eval_wins
         }
 
         if PRIORITY_REPLAY_BUFFER:
@@ -666,6 +673,10 @@ def create_network(state, board_rows, board_cols):
     output_shaped = tf.reshape(output, (-1, nb_rows, nb_cols, 4))
     return output_shaped
 
+def basic_rnn_cell(size, input_size):
+    cell = Dense("cell", size + input_size, size, activation=tf.tanh)
+    return lambda inp, state: cell(tf.concat([inp, state], axis=1))
+
 def create_rnn_network(state, board_rows, board_cols):
     state_size = 64
 
@@ -674,12 +685,12 @@ def create_rnn_network(state, board_rows, board_cols):
     init_state_var = tf.get_variable("InitState", [1, state_size], initializer=tf.zeros_initializer)
     init_state = tf.tile(init_state_var, [batch_size, 1])#tf.zeros([batch_size, state_size])
 
-    cells = [Dense("cell", state_size + 1, state_size, activation=tf.tanh)] * 4
+    cells = [tf.nn.rnn_cell.GRUCell(state_size)] * 4 #[Dense("cell", state_size + 1, state_size, activation=tf.tanh)] * 4
     state_grid = unroll2DRNN(cells, state, init_state, BOARD_SIZE[0], BOARD_SIZE[1])
 
     sub_network = create_fully_connected("output", state_size, [
-        (tf.nn.relu, 128),
-        (tf.nn.relu, 64),
+        #(tf.nn.relu, 256),
+        #(tf.nn.relu, 128),
         (tf.nn.relu, 64),
         (None, 1)
     ])
@@ -695,7 +706,7 @@ dqn_player = DQNPlayer_creator(create_rnn_network, "rnn")#DQNPlayer_creator(crea
 def learn_pickle():
     print("training from pickle")
     p = dqn_player(BOARD_SIZE)
-    p.learn_from_pickle(PICKLE_NAME, 1000)
+    p.learn_from_pickle(PICKLE_NAME, 20000)
     p.save()
     print("done")
 
@@ -731,7 +742,15 @@ def main():
     if TRAIN:
         print("training")
         try:
-            g.train(TRAIN_GAMES)
+            games_to_play = TRAIN_GAMES
+            while games_to_play > 0:
+                ngames = min(games_to_play, 1000)
+                print("train:")
+                g.train(ngames)
+                print("eval:")
+                wins, _, _ = g.eval(100)
+                g.players[0].last_eval_wins = wins
+                games_to_play -= ngames
         except KeyboardInterrupt:
             pass
 

@@ -12,16 +12,16 @@ def unroll_direction(cell, input_grid, start_state, width, height, board_rows, b
     for row in range(height)[::dir_row]:
         for col in range(width)[::dir_col]:
             current_input = input_grid[row][col]
-            #current_input = tf.reshape(current_input, [-1, input_size])
-            #print(current_input.shape)
+
             nrow = row - dir_row
             ncol = col - dir_col
             current_state_row = state_grid[nrow][col] if in_board(board_cols, board_rows, nrow, col) else start_state
             current_state_col = state_grid[row][ncol] if in_board(board_cols, board_rows, row, ncol) else start_state
+            # sum state as changing x/y shouldn't change output
             current_state = current_state_col + current_state_row
-            input_and_state = tf.concat([current_input, current_state], axis = 1)
-            #print(input_and_state.shape)
-            out_state = cell(input_and_state)
+            #input_and_state = tf.concat([current_input, current_state], axis = 1)
+
+            _, out_state = cell(current_input, current_state) # TODO: seperate state and input for using lstm (not need for GRU or RNN)
 
             state_grid[row][col] = out_state
     return state_grid
@@ -33,7 +33,7 @@ def unroll2DRNN(cells, inputs, input_state, board_rows, board_cols):
     # first split along x direction to give list [x = 0, x = 1, x = 2, ..]
     # then unstack each x along y irection to give [x = 0 [y = 0, y = 1], x = 1 [...], ...]
     input_series = [tf.unstack(X, height, 1) for X in tf.unstack(inputs, width, 1)]
-    
+
     grid1 = unroll_direction(cells[0], input_series, input_state, width, height, board_rows, board_cols, (1, 1))
     grid2 = unroll_direction(cells[1], input_series, input_state, width, height, board_rows, board_cols, (-1, 1))
     grid3 = unroll_direction(cells[2], input_series, input_state, width, height, board_rows, board_cols, (1, -1))

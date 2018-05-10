@@ -270,8 +270,8 @@ class QPlayer(Player):
 
         self.expl_update = (self.exploration - self.final_exploration) / self.exploration_fraction
 
-        self.alpha = 0.3
-        self.gamma = 0.9
+        self.alpha = 1.0
+        self.gamma = 0.7
 
         self.update = True
 
@@ -492,10 +492,11 @@ class Game:
     def eval(self, n_games):
         """evaluates the players by playing n_games and summerizing the result"""
         start_time = time.time()
-        self.train(n_games, False)
+        ret = self.train(n_games, False)
         end_time = time.time()
         elapsed = end_time - start_time
         print("total time:", elapsed, "per game:", elapsed / n_games)
+        return ret
 
     def train(self, n_games, train=True):
         """Plays n_games tracking some statistics, if train is true also rewards the players"""
@@ -527,7 +528,7 @@ class Game:
                 else:
                     wins[self.winner] += 1
 
-            if train and idx % 1000 == 0:
+            if train and (idx+1) % 1000 == 0:
                 self.players[0].summary()
                 self.players[1].summary()
                 print("game: ", idx, "last 1000 games:")
@@ -556,6 +557,8 @@ class Game:
             print("draws: ", draws, " (", p(draws, n_games), "%)")
             print("avg play time:\t", self.play_times[0] / self.steps[0], "\t", self.play_times[1] / self.steps[0])
             print("-----------------------------------------------")
+
+        return wins[0], wins[1], draws
 
     def __repr__(self):
         return str(self)

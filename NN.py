@@ -12,7 +12,7 @@ class Dense:
         self.name = name
 
         self.W = tf.get_variable(name + "-W", [input_size, output_size])
-        self.b = tf.get_variable(name + "-b", [1, output_size])
+        self.b = tf.get_variable(name + "-b", [1, output_size], initializer=tf.zeros_initializer)
 
     def __call__(self, input):
         output = tf.matmul(input, self.W) + self.b

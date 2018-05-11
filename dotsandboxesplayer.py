@@ -22,10 +22,10 @@ MIN_INF = float('-inf')
 
 # HYPER PARAMETERS:
 INITIAL_EXPLORATION = 0.1
-FINAL_EXPLORATION = 0.001
+FINAL_EXPLORATION = 0.01
 EXPLORATION_STEPS = 50000
 
-DISCOUNT_GAMMA = 0.9
+DISCOUNT_GAMMA = 0.7
 ALPHA = 1.0 # NOT USED CURRENTLY
 
 UPDATE_TARGET_INTERVAL = 1000
@@ -42,14 +42,14 @@ PRIORITY_EPS = 1e-6
 
 GRADIENT_CLIPPING_NORM = 10
 
-REGULARIZATION_FACTOR = 1e-5
+REGULARIZATION_FACTOR = 0.0
 
 LEARNING_RATE = 5e-4
 
 DOUBLE_Q_LEARNING = True
 
 # run parameters:
-TRAIN = True
+TRAIN = False
 
 RAND_START = True
 START_FIRST = False
@@ -61,9 +61,9 @@ GREEDY_PLAY = True
 
 PRINT_QS = False
 
-BOARD_SIZE = (3, 3)
+BOARD_SIZE = (2, 2)
 
-TRAIN_GAMES = 100000
+TRAIN_GAMES = 10000
 EVAL_GAMES = 500
 
 # from: https://github.com/openai/baselines/blob/master/baselines/common/tf_util.py
@@ -674,12 +674,12 @@ def create_rnn_network(state):
     init_state = tf.tile(init_state_var, [batch_size, 1])#tf.zeros([batch_size, state_size])
     init_state_test = init_state_var
 
-    cells = [Dense("cell", 2 * state_size + 4, state_size, activation=tf.tanh)] * 4
+    cells = [Dense("cell-"+str(i), 2 * state_size + 4, state_size, activation=tf.tanh) for i in range(4)]
     state_grid = unroll2DRNN(cells, state, init_state)
 
     sub_network = create_fully_connected("output", 4 * state_size, [
-        (tf.nn.relu, 128),
-        (tf.nn.relu, 32),
+        (tf.nn.relu, 64),
+        #(tf.nn.relu, 32),
         (None, 4)
     ])
 

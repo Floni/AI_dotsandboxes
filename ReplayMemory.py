@@ -1,3 +1,6 @@
+# based on:
+# https://github.com/openai/baselines/blob/master/baselines/deepq/replay_buffer.py
+
 from collections import deque
 
 from segment_tree import MinSegmentTree, SumSegmentTree
@@ -12,7 +15,7 @@ class ReplayMemory:
         self.next_idx = 0
         self.max_mem = max_mem
 
-    def add_mem(self, state, action, next_state, reward, done, next_state_valid):  #state_valid, next_state_valid):
+    def add_mem(self, state, action, next_state, reward, done, next_state_valid):
         data = (state, action, next_state, reward, done, next_state_valid)
         if self.next_idx >= len(self.memory):
             self.memory.append(data)
@@ -33,7 +36,6 @@ class PriorityReplayMemory(ReplayMemory):
             tree_cap *= 2
 
         self.sum_tree = SumSegmentTree(tree_cap)
-        self.min_tree = MinSegmentTree(tree_cap)
         self.max_priority = 1.0
 
     def add_mem(self, *args, **kwargs):
@@ -41,7 +43,6 @@ class PriorityReplayMemory(ReplayMemory):
         super().add_mem(*args, **kwargs)
         prio = self.max_priority ** self.alpha
         self.sum_tree[idx] = prio
-        self.min_tree[idx] = prio
 
     def _sample_idxs(self, size):
         idxs = []
@@ -58,7 +59,6 @@ class PriorityReplayMemory(ReplayMemory):
         # create weights:
         weights = []
         tot_sum = self.sum_tree.sum()
-        tot_min = self.min_tree.min()
 
         #p_min = tot_min / tot_sum
         #max_w = (p_min * len(self.memory)) ** (-beta)
@@ -81,6 +81,5 @@ class PriorityReplayMemory(ReplayMemory):
             assert prio > 0
             prio_a = prio ** self.alpha
             self.sum_tree[idx] = prio_a
-            self.min_tree[idx] = prio_a
 
             self.max_priority = max(self.max_priority, prio)

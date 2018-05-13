@@ -16,17 +16,18 @@ ACTIONS = ["v", "h"]
 ACTION_N = {"v": 0, "h": 1}
 
 # rewwards:
-REWARD_CHEAT = -50.0 # UNUSED
+REWARD_CHEAT = -500.0 # UNUSED
 
-REWARD_WIN = 10.0
-REWARD_LOSE = -10.0
+REWARD_WIN = 1.0
+REWARD_LOSE = -1.0
 
 REWARD_TIE = 0
 REWARD_PLAY = 0
 REWARD_BOX = 0
 
 # Print iterations progress
-def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, length = 100, fill = '█'):
+def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1,
+                      length = 100, fill = '█'):
     """
     Call in a loop to create terminal progress bar
     @params:
@@ -34,11 +35,13 @@ def printProgressBar (iteration, total, prefix = '', suffix = '', decimals = 1, 
         total       - Required  : total iterations (Int)
         prefix      - Optional  : prefix string (Str)
         suffix      - Optional  : suffix string (Str)
-        decimals    - Optional  : positive number of decimals in percent complete (Int)
+        decimals    - Optional  : positive number of decimals
+                                  in percent complete (Int)
         length      - Optional  : character length of bar (Int)
         fill        - Optional  : bar fill character (Str)
     """
-    percent = ("{0:." + str(decimals) + "f}").format(100 * (iteration / float(total)))
+    val = 100 * (iteration / float(total))
+    percent = ("{0:." + str(decimals) + "f}").format(val)
     filledLength = int(length * iteration // total)
     bar = fill * filledLength + '-' * (length - filledLength)
     print('\r%s |%s| %s%% %s' % (prefix, bar, percent, suffix), end = '\r')
@@ -58,7 +61,8 @@ class Board:
         self.nb_cols = nb_cols
         # zero for every dot
         # [vertical, horizontal, captured player]
-        self.state = [[[0, 0, 0] for _ in range(nb_cols+1)] for _ in range(nb_rows+1)]
+        self.state = [[
+            [0, 0, 0] for _ in range(nb_cols+1)] for _ in range(nb_rows+1)]
 
         self.scores = [0, 0]
 
@@ -186,7 +190,7 @@ class Board:
                 line2 += " 12"[o]
             ret += line1 + "\n"
             ret += line2 + "\n"
-        ret += "scores: " + str(self.scores) + " ended: " + str(self.has_ended())
+        ret += "scores: " + str(self.scores) + " ended: "+ str(self.has_ended())
         return ret
 
 class Player:
@@ -229,7 +233,9 @@ class Player:
 
     def reward(self, board, action, next_board, reward, done, player=None):
         """
-        give the player a reward for the specified <state, action, next_state> pair
+        give the player a reward
+        for the specified <state, action, next_state> pair
+
         board: the state
         action: the action taken
         next_board: the board after the action or None if done is True
@@ -268,10 +274,11 @@ class QPlayer(Player):
         self.final_exploration = 0.02
         self.exploration_fraction = 100000
 
-        self.expl_update = (self.exploration - self.final_exploration) / self.exploration_fraction
+        self.expl_update = (self.exploration - self.final_exploration) \
+            / self.exploration_fraction
 
-        self.alpha = 0.3
-        self.gamma = 0.9
+        self.alpha = 1.0
+        self.gamma = 0.7
 
         self.update = True
 
@@ -282,8 +289,9 @@ class QPlayer(Player):
 
 
     def to_state(self, board):
-        """Converts a board to an immutable state tuple for use in the Q dictionary"""
-        return tuple([tuple([(x[0] != 0, x[1] != 0) for x in a]) for a in board.state])
+        """Converts a board to an immutable tuple for use in the dictionary"""
+        return tuple([tuple([(x[0] != 0, x[1] != 0) for x in a])
+                        for a in board.state])
 
     def getQ(self, state, action):
         """Gets the Q value from the dictionary"""
@@ -298,13 +306,15 @@ class QPlayer(Player):
         Args:
             state: the state the move was made in
             action: the move that was player
-            next_state: the resulting state after this action (and after the other player moved)
+            next_state: the resulting state after this action
+                            (and after the other player moved)
             reward: the reward received for playing this move
-            done: boolean wheter or not the game was done (used for next Q value)
+            done: boolean wheter the game was done (used for next Q value)
         """
         max_q_next = 0
 
-        self.exploration = max(self.exploration - self.expl_update, self.final_exploration)
+        self.exploration = \
+            max(self.exploration - self.expl_update, self.final_exploration)
 
         # don't get max_q_next if done:
         if not done and next_state in self.Q:
@@ -345,7 +355,8 @@ class QPlayer(Player):
         print("step:", self.step, "exploration:", self.exploration)
 
     def get_save_name(self):
-        name = "q_value" + str(self.board_rows) + "x" + str(self.board_cols) + ".pickle"
+        name = "q_value" + str(self.board_rows) + "x" + str(self.board_cols)
+        name += ".pickle"
         return name
 
     def load(self):
@@ -384,7 +395,12 @@ class Game:
     def reset(self):
         """Resets the game to the initial state"""
         self.board = Board(self.size[0], self.size[1])
-        self.cur_player =  1 - self.cur_player if self.rand_start else self.start_player #random.randint(0, 1)
+
+        self.cur_player =  self.start_player
+        if self.rand_start:
+            self.cur_player = 1 - self.start_player
+        self.start_player = self.cur_player
+
         self.ended = False
         self.winner = None
         self.cheated = False
@@ -432,7 +448,10 @@ class Game:
         return cheated, captured
 
     def step(self, train=False):
-        """lets one player move and updates the board, also rewards the player if train is true"""
+        """
+        lets one player move and updates the board,
+            also rewards the player if train is true
+        """
         assert not self.ended
 
         cp = self.cur_player
@@ -462,24 +481,30 @@ class Game:
                                   None, REWARD_CHEAT, True, cp)
             elif self.ended:
                 if self.winner is None:
-                    cur_player.reward(self.last_boards[cp], self.last_actions[cp],
-                                      None, REWARD_TIE, True, cp)
-                    other_player.reward(self.last_boards[op], self.last_actions[op],
+                    cur_player.reward(
+                        self.last_boards[cp], self.last_actions[cp],
+                        None, REWARD_TIE, True, cp)
+                    other_player.reward(
+                        self.last_boards[op], self.last_actions[op],
                                         None, REWARD_TIE, True, op)
                 else:
                     w = self.winner
                     l = 1 - self.winner
-                    self.players[w].reward(self.last_boards[w], self.last_actions[w],
-                                           None, REWARD_WIN, True, w)
-                    self.players[l].reward(self.last_boards[l], self.last_actions[l],
-                                           None, REWARD_LOSE, True, l)
+                    self.players[w].reward(
+                        self.last_boards[w], self.last_actions[w],
+                        None, REWARD_WIN, True, w)
+                    self.players[l].reward(
+                        self.last_boards[l], self.last_actions[l],
+                        None, REWARD_LOSE, True, l)
             else:
                 if captured:
-                    cur_player.reward(self.last_boards[cp], self.last_actions[cp], self.board,
-                                        REWARD_BOX, False, cp)
+                    cur_player.reward(
+                        self.last_boards[cp], self.last_actions[cp], self.board,
+                        REWARD_BOX, False, cp)
                 elif self.last_boards[op] is not None:
-                    other_player.reward(self.last_boards[op], self.last_actions[op], self.board,
-                                        REWARD_PLAY, False, op)
+                    other_player.reward(
+                        self.last_boards[op], self.last_actions[op], self.board,
+                        REWARD_PLAY, False, op)
 
     def play_game(self):
         """Plays one game, printing the board after each move"""
@@ -490,15 +515,21 @@ class Game:
             print(self)
 
     def eval(self, n_games):
-        """evaluates the players by playing n_games and summerizing the result"""
+        """
+        evaluates the players by playing n_games and summerizing the result
+        """
         start_time = time.time()
-        self.train(n_games, False)
+        ret = self.train(n_games, False)
         end_time = time.time()
         elapsed = end_time - start_time
         print("total time:", elapsed, "per game:", elapsed / n_games)
+        return ret
 
     def train(self, n_games, train=True):
-        """Plays n_games tracking some statistics, if train is true also rewards the players"""
+        """
+        Plays n_games tracking some statistics,
+        if train is true also rewards the players
+        """
         wins = [0, 0]
         draws = 0
 
@@ -527,13 +558,16 @@ class Game:
                 else:
                     wins[self.winner] += 1
 
-            if train and idx % 1000 == 0:
+            if train and (idx+1) % 1000 == 0:
                 self.players[0].summary()
                 self.players[1].summary()
                 print("game: ", idx, "last 1000 games:")
                 print("scores: \t", scores[0], "\t", scores[1])
-                print("wins: \t\t", wins[0], " (", p(wins[0]),"%)\t", wins[1], " (", p(wins[1]), "%)")
-                print("cheats: \t", cheats[0], " (", p(cheats[0]), "%)\t", cheats[1], " (", p(cheats[1]), "%)")
+                print("wins: \t\t", wins[0],
+                    " (", p(wins[0]),"%)\t", wins[1], " (", p(wins[1]), "%)")
+                print("cheats: \t", cheats[0],
+                    " (", p(cheats[0]), "%)\t", cheats[1],
+                    " (", p(cheats[1]), "%)")
                 print("draws: ", draws, " (", p(draws), "%)")
                 print("-----------------------------------------------")
                 wins = [0, 0]
@@ -551,11 +585,18 @@ class Game:
                 printProgressBar(idx % 1000, 1000 - 1, suffix=" to 1000")
         if not train:
             print("scores: \t", scores[0], "\t", scores[1])
-            print("wins:   \t", wins[0], " (", p(wins[0], n_games),"%)\t", wins[1], " (", p(wins[1], n_games), "%)")
-            print("cheats: \t", cheats[0], " (", p(cheats[0], n_games), "%)\t", cheats[1], " (", p(cheats[1], n_games), "%)")
+            print("wins:   \t", wins[0],
+                " (", p(wins[0], n_games),"%)\t", wins[1],
+                " (", p(wins[1], n_games), "%)")
+            print("cheats: \t", cheats[0],
+                " (", p(cheats[0], n_games), "%)\t", cheats[1],
+                " (", p(cheats[1], n_games), "%)")
             print("draws: ", draws, " (", p(draws, n_games), "%)")
-            print("avg play time:\t", self.play_times[0] / self.steps[0], "\t", self.play_times[1] / self.steps[0])
+            print("avg play time:\t", self.play_times[0] / self.steps[0],
+                "\t", self.play_times[1] / self.steps[0])
             print("-----------------------------------------------")
+
+        return wins[0], wins[1], draws
 
     def __repr__(self):
         return str(self)
@@ -615,7 +656,7 @@ if __name__ == '__main__':
 
     print("training")
     try:
-        g.train(100000)
+        g.train(200000)
     except KeyboardInterrupt:
         pass
     print("evaluating")

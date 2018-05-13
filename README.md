@@ -2,12 +2,11 @@
 
 This is the implementation of a dots and boxes agent by Timothy Werquin and Florian Van Heghe for the Machine Learning: Project
  course of 2017-2018 at KU Leuven.
- 
+
  ## Requirements
- 
+
 This project has been written in Python 3.6 and has the following dependencies:
   * Numpy
-  * Matplotlib
   * Tensorflow
 
 These can be installed using pip:

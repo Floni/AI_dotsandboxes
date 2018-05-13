@@ -7,7 +7,6 @@ import time
 import random
 import numpy as np
 import tensorflow as tf
-import matplotlib.pyplot as plt
 from collections import deque
 
 import pickle

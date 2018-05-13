@@ -51,16 +51,12 @@ LEARNING_RATE = 5e-4
 DOUBLE_Q_LEARNING = True
 
 # run parameters:
-<<<<<<< HEAD
-TRAIN = False
-=======
 SUMMARY_HISTOGRAMS = True
 
 TRAIN = False
 
 LEARN_FROM_PICKLE = False
 PICKLE_NAME = "q_value2x2.pickle"
->>>>>>> new_rep
 
 RAND_START = True
 START_FIRST = False
@@ -72,13 +68,9 @@ GREEDY_PLAY = True
 
 PRINT_QS = False
 
-BOARD_SIZE = (2, 2)
+BOARD_SIZE = (3, 3)
 
-<<<<<<< HEAD
-TRAIN_GAMES = 10000
-=======
 TRAIN_GAMES = 30000
->>>>>>> new_rep
 EVAL_GAMES = 500
 
 # from:
@@ -706,15 +698,6 @@ def create_rnn_network(state, board_rows, board_cols):
 
     cells = [cell] * 4
 
-<<<<<<< HEAD
-    cells = [Dense("cell-"+str(i), 2 * state_size + 4, state_size, activation=tf.tanh) for i in range(4)]
-    state_grid = unroll2DRNN(cells, state, init_state)
-
-    sub_network = create_fully_connected("output", 4 * state_size, [
-        (tf.nn.relu, 64),
-        #(tf.nn.relu, 32),
-        (None, 4)
-=======
     state_grid = unroll2DRNN(cells, state, init_state, board_rows, board_cols)
 
     sub_network = create_fully_connected("output", state_size, [
@@ -722,7 +705,6 @@ def create_rnn_network(state, board_rows, board_cols):
         #(tf.nn.relu, 256),
         (tf.nn.relu, 64),
         (None, 1)
->>>>>>> new_rep
     ])
 
     concat_grid = sum2D(state_grid)

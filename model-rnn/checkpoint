@@ -1,0 +1,4 @@
+model_checkpoint_path: "weights.ckpt-327949"
+all_model_checkpoint_paths: "weights.ckpt-305490"
+all_model_checkpoint_paths: "weights.ckpt-316881"
+all_model_checkpoint_paths: "weights.ckpt-327949"

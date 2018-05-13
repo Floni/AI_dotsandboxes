@@ -12,7 +12,8 @@ class Dense:
         self.name = name
 
         self.W = tf.get_variable(name + "-W", [input_size, output_size])
-        self.b = tf.get_variable(name + "-b", [1, output_size], initializer=tf.zeros_initializer)
+        self.b = tf.get_variable(name + "-b", [1, output_size],
+                                 initializer=tf.zeros_initializer)
 
     def __call__(self, input):
         output = tf.matmul(input, self.W) + self.b
@@ -24,8 +25,9 @@ class Dense:
 
 def create_fully_connected(name, input_size, layers):
     """
-        Creates a fully connected neural network that takes an input of input_size
-        and applies each layer to it.
+        Creates a fully connected neural network
+         that takes an input of input_size
+         and applies each layer to it.
         A layer is a tuple (activation function, output_size)
     """
     layer_objs = []

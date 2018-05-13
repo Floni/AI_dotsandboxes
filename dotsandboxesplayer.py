@@ -21,6 +21,8 @@ from ReplayMemory import ReplayMemory, PriorityReplayMemory
 MIN_INF = float('-inf')
 
 # HYPER PARAMETERS:
+GRU_CELL = False
+
 INITIAL_EXPLORATION = 0.1
 FINAL_EXPLORATION = 0.01
 EXPLORATION_STEPS = 50000
@@ -46,12 +48,12 @@ REGULARIZATION_FACTOR = 0.0
 
 LEARNING_RATE = 5e-4
 
-DOUBLE_Q_LEARNING = False
+DOUBLE_Q_LEARNING = True
 
 # run parameters:
 SUMMARY_HISTOGRAMS = True
 
-TRAIN = True
+TRAIN = False
 
 LEARN_FROM_PICKLE = False
 PICKLE_NAME = "q_value2x2.pickle"
@@ -71,7 +73,8 @@ BOARD_SIZE = (3, 3)
 TRAIN_GAMES = 30000
 EVAL_GAMES = 500
 
-# from: https://github.com/openai/baselines/blob/master/baselines/common/tf_util.py
+# from:
+# https://github.com/openai/baselines/blob/master/baselines/common/tf_util.py
 def huber_loss(x, delta=1.0):
     """Reference: https://en.wikipedia.org/wiki/Huber_loss"""
     return tf.where(
@@ -80,26 +83,12 @@ def huber_loss(x, delta=1.0):
         delta * (tf.abs(x) - 0.5 * delta)
     )
 
-# LEFT  = 0
-# UPPER = 1
-# RIGHT = 2
-# LOWER = 3
-
-# LEFT_EDGE_MASK =  [1, 0, 0, 0]
-# UPPER_EDGE_MASK = [0, 1, 0, 0]
-# RIGHT_EDGE_MASK = [0, 0, 1, 0]
-# LOWER_EDGE_MASK = [0, 0, 0, 1]
-
-# LEFT_NEIGHBOUR_MASK  = np.array([[0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]])
-# UPPER_NEIGHBOUR_MASK = np.array([[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0]])
-# RIGHT_NEIGHBOUR_MASK = np.array([[0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0], [0, 0, 0, 0]])
-# LOWER_NEIGHBOUR_MASK = np.array([[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 1, 0, 0]])
-
 class DQNPlayer(Player):
     """
     deep Q network player for dots and boxes
     """
-    def __init__(self, predictor_func, grid, time_limit=None, player=None, name=""):
+    def __init__(self, predictor_func, grid,
+                 time_limit=None, player=None, name=""):
         super().__init__(grid, time_limit, player)
 
         self.name = name
@@ -114,7 +103,8 @@ class DQNPlayer(Player):
 
         self.exploration = INITIAL_EXPLORATION
         self.final_exploration = FINAL_EXPLORATION
-        self.expl_update = (self.exploration - self.final_exploration) / EXPLORATION_STEPS
+        self.expl_update = \
+            (self.exploration - self.final_exploration) / EXPLORATION_STEPS
 
         self.gamma = DISCOUNT_GAMMA
         self.alpha = ALPHA
@@ -126,7 +116,8 @@ class DQNPlayer(Player):
         self.reg_param = REGULARIZATION_FACTOR
 
         if PRIORITY_REPLAY_BUFFER:
-            self.replay_mem = PriorityReplayMemory(REPLAY_BUFFER_SIZE, PRIORITY_ALPHA)
+            self.replay_mem = \
+                PriorityReplayMemory(REPLAY_BUFFER_SIZE, PRIORITY_ALPHA)
             self.beta = PRIORITY_BETA_INIT
             self.beta_update = (1.0 - PRIORITY_BETA_INIT) / PRIORITY_BETA_ITERS
         else:
@@ -142,15 +133,6 @@ class DQNPlayer(Player):
         self.graph = tf.Graph()
         self.session = tf.Session(graph=self.graph)
         with self.graph.as_default():
-            # self.LEFT_EDGE_MASK  = tf.constant(LEFT_EDGE_MASK,  tf.float32)
-            # self.UPPER_EDGE_MASK = tf.constant(UPPER_EDGE_MASK, tf.float32)
-            # self.RIGHT_EDGE_MASK = tf.constant(RIGHT_EDGE_MASK, tf.float32)
-            # self.LOWER_EDGE_MASK = tf.constant(LOWER_EDGE_MASK, tf.float32)
-
-            # self.LEFT_NEIGHBOUR_MASK  = tf.constant(LEFT_NEIGHBOUR_MASK,  tf.float32)
-            # self.UPPER_NEIGHBOUR_MASK = tf.constant(UPPER_NEIGHBOUR_MASK, tf.float32)
-            # self.RIGHT_NEIGHBOUR_MASK = tf.constant(RIGHT_NEIGHBOUR_MASK, tf.float32)
-            # self.LOWER_NEIGHBOUR_MASK = tf.constant(LOWER_NEIGHBOUR_MASK, tf.float32)
 
             self.create_graph()
             self.session.run(tf.global_variables_initializer())
@@ -170,44 +152,6 @@ class DQNPlayer(Player):
 
         self.last_avg_reward = 0
 
-    # def average_cell(self, state):
-    #     output = [[None] * self.state_cols for _ in range(self.state_rows)]
-    #     inpt_array = [tf.unstack(X, self.state_cols, 1) for X in tf.unstack(state, self.state_rows, 1)]
-    #     for row in range(self.state_rows):
-    #         for col in range(self.state_cols):
-    #             input = inpt_array[row][col]
-    #             # neighbours:
-    #             if row > 0:
-    #                 upper = inpt_array[row-1][col]
-    #                 upper_masked = tf.transpose(tf.matmul(self.UPPER_NEIGHBOUR_MASK, upper, transpose_b=True))
-    #             else:
-    #                 upper = input
-    #                 upper_masked = self.UPPER_EDGE_MASK * upper
-
-    #             if row < self.state_rows-1:
-    #                 lower = inpt_array[row+1][col]
-    #                 lower_masked = tf.transpose(tf.matmul(self.LOWER_NEIGHBOUR_MASK, lower, transpose_b=True))
-    #             else:
-    #                 lower = input
-    #                 lower_masked = self.LOWER_EDGE_MASK * lower
-
-    #             if col > 0:
-    #                 left  = inpt_array[row][col-1]
-    #                 left_masked = tf.transpose(tf.matmul(self.LEFT_NEIGHBOUR_MASK, left, transpose_b=True))
-    #             else:
-    #                 left = input
-    #                 left_masked = self.LEFT_EDGE_MASK * left
-
-    #             if col < self.state_cols-1:
-    #                 right = inpt_array[row][col+1]
-    #                 right_masked = tf.transpose(tf.matmul(self.RIGHT_NEIGHBOUR_MASK, right, transpose_b=True))
-    #             else:
-    #                 right = input
-    #                 right_masked = self.RIGHT_EDGE_MASK * right
-
-    #             output[row][col] = 0.5 * (input + left_masked + upper_masked + right_masked + lower_masked)
-    #     return tf.transpose(output, (2, 0, 1, 3))
-
     def create_graph(self):
         """
         Creates the computation graph of the neural network
@@ -216,47 +160,61 @@ class DQNPlayer(Player):
         self.global_step = tf.Variable(0, name='global_NNstep', trainable=False)
 
         with tf.name_scope("action_prediction"):
-            self.States = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="states_in")
+            self.States = tf.placeholder(tf.float32,
+                [None, self.state_rows, self.state_cols, self.state_depth],
+                name="states_in")
 
             with tf.variable_scope("q_network"):
-                self.q_outputs = self.predictor_func(self.States, self.board_rows, self.board_cols)
+                self.q_outputs = self.predictor_func(
+                    self.States, self.board_rows, self.board_cols)
 
-            # no need for valid action mask as if the chosen actions are valid non valid actions are never trained.
-            #self.Valid_Action_Mask = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, 2], name="valid_in")
 
             self.action_scores = self.q_outputs #* self.Valid_Action_Mask
             tf.summary.histogram("action_scores", self.action_scores)
 
         with tf.name_scope("calc_q_vals"):
-            self.Next_States = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="next_states_in")
-            self.Valid_Next_Action_Mask = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="next_valid_in")
-            #test_mask = (1 - self.Valid_Next_Action_Mask) * REWARD_CHEAT # less then min reward
+            self.Next_States = tf.placeholder(tf.float32,
+                [None, self.state_rows, self.state_cols, self.state_depth],
+                name="next_states_in")
+            self.Valid_Next_Action_Mask = tf.placeholder(tf.float32,
+                [None, self.state_rows, self.state_cols, self.state_depth],
+                name="next_valid_in")
 
             # for when in final state to mask max(Q(next, a)) (if done is true, mask == 0)
-            self.Next_State_Mask = tf.placeholder(tf.float32, [None], name="next_states_mask")
+            self.Next_State_Mask = tf.placeholder(tf.float32, [None],
+                name="next_states_mask")
 
             if DOUBLE_Q_LEARNING:
                 with tf.variable_scope("q_network", reuse=True):
-                    q_next_out = self.predictor_func(self.Next_States, self.board_rows, self.board_cols)
-                q_next_scores = q_next_out + self.Valid_Next_Action_Mask#* self.Valid_Next_Action_Mask + test_mask
+                    q_next_out = self.predictor_func(self.Next_States,
+                        self.board_rows, self.board_cols)
+                q_next_scores = q_next_out + self.Valid_Next_Action_Mask
 
                 action_size = self.state_rows*self.state_cols*self.state_depth
-                action_selection = tf.argmax(tf.reshape(q_next_scores, [-1, action_size]), axis=1)
-                action_selection_mask = tf.reshape(tf.one_hot(action_selection, action_size), [-1, self.state_rows, self.state_cols, self.state_depth])
+                action_selection = tf.argmax(tf.reshape(q_next_scores,
+                    [-1, action_size]), axis=1)
+                action_selection_mask = tf.reshape(
+                    tf.one_hot(action_selection, action_size),
+                    [-1, self.state_rows, self.state_cols, self.state_depth])
 
                 with tf.variable_scope("target_network"):
-                    target_out = self.predictor_func(self.Next_States, self.board_rows, self.board_cols)
-                action_evaluation = tf.reduce_sum(target_out * action_selection_mask, axis=(1, 2, 3))
+                    target_out = self.predictor_func(
+                        self.Next_States, self.board_rows, self.board_cols)
+                action_evaluation = tf.reduce_sum(
+                    target_out * action_selection_mask, axis=(1, 2, 3))
                 self.target_values = action_evaluation * self.Next_State_Mask
             else:
                 # target network (see paper):
                 with tf.variable_scope("target_network"):
-                    self.target_outputs = self.predictor_func(self.Next_States, self.board_rows, self.board_cols)
+                    self.target_outputs = self.predictor_func(self.Next_States,
+                        self.board_rows, self.board_cols)
 
                 # don't update target network while learning:
-                self.next_action_scores = self.target_outputs + self.Valid_Next_Action_Mask# * self.Valid_Next_Action_Mask # + test_mask
+                self.next_action_scores = \
+                    self.target_outputs + self.Valid_Next_Action_Mask
 
-                self.target_values = tf.reduce_max(self.next_action_scores, axis=(1, 2, 3)) * self.Next_State_Mask
+                self.target_values = tf.reduce_max(self.next_action_scores,
+                    axis=(1, 2, 3)) * self.Next_State_Mask
 
             self.Rewards = tf.placeholder(tf.float32, [None], name="rewards_in")
 
@@ -264,14 +222,21 @@ class DQNPlayer(Player):
 
         with tf.name_scope("calc_loss"):
             # mask for chosen action
-            self.Action_Mask = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="action_mask")
+            self.Action_Mask = tf.placeholder(tf.float32,
+                [None, self.state_rows, self.state_cols, self.state_depth],
+                    name="action_mask")
             # only one action mask is '1' so sum selects this score:
-            self.masked_action_scores = tf.reduce_sum(self.action_scores * self.Action_Mask, axis=(1, 2, 3))
+            self.masked_action_scores = \
+                tf.reduce_sum(self.action_scores * self.Action_Mask,
+                    axis=(1, 2, 3))
 
-            self.temp_diff = self.masked_action_scores - tf.stop_gradient(self.future_rewards)
+            self.temp_diff = \
+                self.masked_action_scores - \
+                    tf.stop_gradient(self.future_rewards)
 
             if PRIORITY_REPLAY_BUFFER:
-                self.Error_Weights = tf.placeholder(tf.float32, [None], name="prio_weights")
+                self.Error_Weights = tf.placeholder(tf.float32, [None],
+                    name="prio_weights")
                 errors = self.Error_Weights * huber_loss(self.temp_diff)
                 tf.summary.histogram("error_weights", self.Error_Weights)
             else:
@@ -281,15 +246,19 @@ class DQNPlayer(Player):
 
             tf.summary.scalar('td_loss', self.td_loss)
 
-            q_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
-            self.reg_loss = self.reg_param * tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in q_net_vars])
+            q_net_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                scope="q_network")
+            self.reg_loss = self.reg_param * \
+                tf.reduce_sum([tf.reduce_sum(tf.square(x)) for x in q_net_vars])
+
             tf.summary.scalar('reg_loss', self.reg_loss)
             self.loss = self.td_loss + self.reg_loss
             tf.summary.scalar('loss', self.loss)
 
-            self.optimizer = tf.train.AdamOptimizer(LEARNING_RATE) #tf.train.RMSPropOptimizer(learning_rate=0.0001, decay=0.9)
+            self.optimizer = tf.train.AdamOptimizer(LEARNING_RATE)
 
-            gradients, variables = zip(*self.optimizer.compute_gradients(self.loss))
+            gradients, variables = \
+                zip(*self.optimizer.compute_gradients(self.loss))
             gradients, _ = tf.clip_by_global_norm(gradients, self.max_gradient)
 
             if SUMMARY_HISTOGRAMS:
@@ -302,39 +271,57 @@ class DQNPlayer(Player):
             #    if grad is not None:
             #        gradients[i] = (tf.clip_by_norm(grad, self.max_gradient), var)
 
-            self.train_op = self.optimizer.apply_gradients(zip(gradients, variables), global_step=self.global_step)
+            self.train_op = \
+                self.optimizer.apply_gradients(zip(gradients, variables),
+                    global_step=self.global_step)
 
         with tf.name_scope("update_target"):
             target_set = []
 
-            q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
-            target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_network")
+            q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                scope="q_network")
+            target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                scope="target_network")
 
-            for v_q, v_target in zip(sorted(q_vars, key=lambda v: v.name), sorted(target_vars, key=lambda v: v.name)):
+            for v_q, v_target in zip(sorted(q_vars, key=lambda v: v.name),
+                                     sorted(target_vars, key=lambda v: v.name)):
                 update_op = v_target.assign(v_q)
                 target_set.append(update_op)
 
             self.target_set_op = tf.group(*target_set)
 
             target_update = []
-            for v_q, v_target in zip(sorted(q_vars, key=lambda v: v.name), sorted(target_vars, key=lambda v: v.name)):
+            for v_q, v_target in zip(sorted(q_vars, key=lambda v: v.name),
+                                     sorted(target_vars, key=lambda v: v.name)):
                 update_op = v_target.assign_sub(self.alpha * (v_target - v_q))
                 target_update.append(update_op)
 
             self.target_update_op = tf.group(*target_update)
 
         with tf.name_scope("train_pickle"):
-            self.Correct_Qs = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="CorrectQs")
-            self.State_Mask = tf.placeholder(tf.float32, [None, self.state_rows, self.state_cols, self.state_depth], name="state_mask")
+            self.Correct_Qs = tf.placeholder(tf.float32,
+                [None, self.state_rows, self.state_cols, self.state_depth],
+                name="CorrectQs")
+            self.State_Mask = tf.placeholder(tf.float32,
+                [None, self.state_rows, self.state_cols, self.state_depth],
+                name="state_mask")
             # calc loss
-            self.Q_loss = tf.losses.mean_squared_error(self.Correct_Qs, self.action_scores * self.State_Mask)
+            self.Q_loss = \
+                tf.losses.mean_squared_error(self.Correct_Qs,
+                    self.action_scores * self.State_Mask)
             # optimize loss
-            self.Q_train_op = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE).minimize(self.Q_loss)
+            self.Q_train_op = \
+                tf.train.AdamOptimizer(learning_rate=LEARNING_RATE) \
+                .minimize(self.Q_loss)
 
         with tf.name_scope("save_model"):
-            q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="q_network")
-            target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope="target_network")
-            self.Saver = tf.train.Saver(q_vars + target_vars + [self.global_step], filename=self.get_save_name(), max_to_keep=3)
+            q_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                scope="q_network")
+            target_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+                scope="target_network")
+            self.Saver = tf.train.Saver(
+                q_vars + target_vars + [self.global_step],
+                filename=self.get_save_name(), max_to_keep=3)
 
         with tf.name_scope("reward_summary"):
             self.avg_reward = tf.placeholder(tf.float32, name='avg_reward')
@@ -358,7 +345,8 @@ class DQNPlayer(Player):
             self.noop = tf.no_op()
 
         self.sum_merged = tf.summary.merge_all()
-        self.sum_writer = tf.summary.FileWriter("logs/", graph=tf.get_default_graph())
+        self.sum_writer = \
+            tf.summary.FileWriter("logs/", graph=tf.get_default_graph())
 
     def updateQ(self, state, action, next_state, reward, done):
         #state_valid = self.get_valid_mask(state)
@@ -366,12 +354,14 @@ class DQNPlayer(Player):
         if not done:
             next_state_valid = self.get_valid_mask(next_state)
 
-        self.replay_mem.add_mem(state, action, next_state, reward, done, next_state_valid) #, state_valid, next_state_valid)
+        self.replay_mem.add_mem(state, action, next_state,
+            reward, done, next_state_valid) #, state_valid, next_state_valid)
         if len(self.replay_mem.memory) < self.batch_size:
             return
 
         if PRIORITY_REPLAY_BUFFER:
-            batch, weights, idxs = self.replay_mem.get_batch(self.batch_size, self.beta)
+            batch, weights, idxs = \
+                self.replay_mem.get_batch(self.batch_size, self.beta)
             self.beta = min(1.0, self.beta + self.beta_update)
         else:
             batch = self.replay_mem.get_batch(self.batch_size)
@@ -382,10 +372,15 @@ class DQNPlayer(Player):
         batch_next_valid_mask = []
         batch_rewards = []
 
-        batch_action_mask = np.zeros((self.batch_size, self.state_rows, self.state_cols, self.state_depth))
+        batch_action_mask = \
+            np.zeros((self.batch_size, self.state_rows,
+                     self.state_cols, self.state_depth))
         batch_next_state_mask = np.zeros(self.batch_size)
 
-        for idx, (state, action, next_state, b_reward, b_done, next_state_valid) in enumerate(batch): #, state_valid, next_state_valid)
+        for idx, \
+            (state, action, next_state, b_reward, b_done, next_state_valid) \
+            in enumerate(batch):
+
             batch_states.append(state)
             #batch_valid_mask.append(state_valid)
             batch_rewards.append(b_reward)
@@ -455,16 +450,19 @@ class DQNPlayer(Player):
 
 
         if do_summary:
-            self.sum_writer.add_summary(_summary, global_step=self.global_step.eval(self.session))
+            self.sum_writer.add_summary(_summary,
+                global_step=self.global_step.eval(self.session))
             self.sum_writer.flush()
 
         # update target:
         self.idx += 1
         if self.idx % UPDATE_TARGET_INTERVAL == 0:
-            self.session.run(self.target_set_op) # change to target_update_op for alpha use
+            # change to target_update_op for alpha use
+            self.session.run(self.target_set_op)
 
         # update exploration:
-        self.exploration = max(self.final_exploration, self.exploration - self.expl_update)
+        self.exploration = \
+            max(self.final_exploration, self.exploration - self.expl_update)
 
         # for summary:
         self.tot_reward += reward
@@ -493,7 +491,8 @@ class DQNPlayer(Player):
                         continue
                     new_row = row + col
                     new_col = zero_col + (col - row) + orient
-                    matrix[new_row][new_col] = 0 if board.get(row, col, orient) == 0 else 1
+                    matrix[new_row][new_col] = \
+                        0 if board.get(row, col, orient) == 0 else 1
         return matrix.reshape((self.state_rows, self.state_cols, 1))
 
     def get_valid_mask(self, state):
@@ -506,8 +505,8 @@ class DQNPlayer(Player):
 
     def getQs(self, state):
         return self.session.run(self.action_scores, feed_dict={
-            self.States: state.reshape((1, self.state_rows, self.state_cols, self.state_depth)),
-            #self.Valid_Action_Mask: self.get_valid_mask(state).reshape((1, self.state_rows, self.state_cols, 2))
+            self.States: state.reshape((1,
+                self.state_rows, self.state_cols, self.state_depth)),
         })[0]
 
 
@@ -601,11 +600,12 @@ class DQNPlayer(Player):
             batch_valid_mask = [self.get_state_mask(x) for x in batch_states]
             batch_labels = [self.map_to_output(Qs[x]) for x in batch]
             # train on batch
-            loss, _ = self.session.run([self.Q_loss, self.Q_train_op], feed_dict={
-                self.States: batch_states,
-                self.State_Mask: batch_valid_mask,
-                self.Correct_Qs: batch_labels
-            })
+            loss, _ = self.session.run([self.Q_loss, self.Q_train_op],
+                feed_dict={
+                    self.States: batch_states,
+                    self.State_Mask: batch_valid_mask,
+                    self.Correct_Qs: batch_labels
+                })
             tot_loss += loss
 
             if idx % 1000 == 0:
@@ -623,7 +623,8 @@ class DQNPlayer(Player):
     def summary(self):
         t = time.time()
         print("Step: {}, eps: {:.3f}, avg. reward: {:.2f}, time: {:.2f}"
-            .format(self.idx, self.exploration, self.last_avg_reward, t - self.last_time))
+            .format(self.idx, self.exploration,
+                    self.last_avg_reward, t - self.last_time))
         self.last_time = t
 
     def get_save_name(self):
@@ -642,7 +643,8 @@ class DQNPlayer(Player):
             return
 
         with self.graph.as_default():
-            save_path = self.Saver.save(self.session, self.get_save_name(), global_step=self.global_step)
+            save_path = self.Saver.save(self.session, self.get_save_name(),
+                global_step=self.global_step)
             print("saved in:", save_path)
 
 
@@ -667,7 +669,8 @@ def create_network(state, board_rows, board_cols):
 
     input_shaped = tf.reshape(state, (-1, input_size))
 
-    last_layer = create_fully_connected("dense-layers", input_size, layers + [(None, output_size)])
+    last_layer = create_fully_connected("dense-layers",
+        input_size, layers + [(None, output_size)])
 
     output = last_layer(input_shaped)
     output_shaped = tf.reshape(output, (-1, nb_rows, nb_cols, 4))
@@ -685,15 +688,21 @@ def create_rnn_network(state, board_rows, board_cols):
 
     batch_size = tf.shape(state)[0]
 
-    init_state_var = tf.get_variable("InitState", [1, state_size], initializer=tf.zeros_initializer)
-    init_state = tf.tile(init_state_var, [batch_size, 1])#tf.zeros([batch_size, state_size])
+    init_state_var = tf.get_variable("InitState", [1, state_size],
+        initializer=tf.zeros_initializer)
+    init_state = tf.tile(init_state_var, [batch_size, 1])
 
-    cells = [basic_rnn_cell(state_size, 1)] * 4#[tf.nn.rnn_cell.GRUCell(state_size)] * 4 #[Dense("cell", state_size + 1, state_size, activation=tf.tanh)] * 4
-    state_grid = unroll2DRNN(cells, state, init_state, BOARD_SIZE[0], BOARD_SIZE[1])
+    cell = tf.nn.rnn_cell.GRUCell(state_size)
+    if not GRU_CELL:
+        cell = basic_rnn_cell(state_size, 1)
+
+    cells = [cell] * 4
+
+    state_grid = unroll2DRNN(cells, state, init_state, board_rows, board_cols)
 
     sub_network = create_fully_connected("output", state_size, [
-        #(tf.nn.relu, 256),
         #(tf.nn.relu, 128),
+        #(tf.nn.relu, 256),
         (tf.nn.relu, 64),
         (None, 1)
     ])
@@ -703,7 +712,7 @@ def create_rnn_network(state, board_rows, board_cols):
 
     return tf.transpose(output, (2, 0, 1, 3))
 
-dqn_player = DQNPlayer_creator(create_rnn_network, "rnn")#DQNPlayer_creator(create_network, "fcc")##DQNPlayer_creator(create_network, "fcc")##create_network)
+dqn_player = DQNPlayer_creator(create_rnn_network, "rnn")
 
 
 def learn_pickle():
@@ -773,7 +782,8 @@ def main():
         state = p.to_state(g.board)
         print(state)
         print("Qs:")
-        qs = p.getQs(state).reshape((p.state_rows, p.state_cols, 1)) + p.get_valid_mask(state)
+        qs = p.getQs(state).reshape((p.state_rows, p.state_cols, 1)) + \
+            p.get_valid_mask(state)
         print(qs.reshape((p.state_rows, p.state_cols)))
 
     print("done")

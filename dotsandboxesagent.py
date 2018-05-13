@@ -118,10 +118,12 @@ async def handler(websocket, path):
                     games[msg["game"]].add_player(msg["player"])
                 else:
                     nb_rows, nb_cols = msg["grid"]
+                    logger.info("initializing")
                     games[msg["game"]] = agentclass(msg["player"],
                                                     nb_rows,
                                                     nb_cols,
                                                     msg["timelimit"])
+                    logger.info("done initializing")
                 if msg["player"] == 1:
                     # Start the game
                     nm = games[game].next_action(1)

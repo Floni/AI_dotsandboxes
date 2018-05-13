@@ -1,3 +1,6 @@
+# based on:
+# https://github.com/openai/baselines/blob/master/baselines/deepq/replay_buffer.py
+
 from collections import deque
 
 from segment_tree import MinSegmentTree, SumSegmentTree
@@ -12,7 +15,7 @@ class ReplayMemory:
         self.next_idx = 0
         self.max_mem = max_mem
 
-    def add_mem(self, state, action, next_state, reward, done, next_state_valid):  #state_valid, next_state_valid):
+    def add_mem(self, state, action, next_state, reward, done, next_state_valid):
         data = (state, action, next_state, reward, done, next_state_valid)
         if self.next_idx >= len(self.memory):
             self.memory.append(data)
